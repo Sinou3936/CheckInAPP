@@ -49,3 +49,4 @@ app.*.map.json
 
 # Local git worktrees (superpowers subagent-driven-development isolation)
 .worktrees/
+.superpowers/

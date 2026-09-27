@@ -50,3 +50,7 @@ app.*.map.json
 # Local git worktrees (superpowers subagent-driven-development isolation)
 .worktrees/
 .superpowers/
+
+# Claude Code: settings.json is shared, settings.local.json is personal
+# (machine-specific absolute paths — must not be committed)
+.claude/settings.local.json

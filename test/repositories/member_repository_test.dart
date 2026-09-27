@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:checkin_app/models/member.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
+
 import '../helpers/test_db.dart';
 
 void main() {

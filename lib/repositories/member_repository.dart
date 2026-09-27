@@ -8,11 +8,11 @@ class MemberRepository {
   Future<int> insert(Member member) => db.insert('members', member.toMap());
 
   Future<void> update(Member member) => db.update(
-        'members',
-        member.toMap(),
-        where: 'id = ?',
-        whereArgs: [member.id],
-      );
+    'members',
+    member.toMap(),
+    where: 'id = ?',
+    whereArgs: [member.id],
+  );
 
   Future<void> delete(int id) =>
       db.delete('members', where: 'id = ?', whereArgs: [id]);
@@ -29,8 +29,11 @@ class MemberRepository {
   }
 
   Future<List<Member>> getByClassId(int classId) async {
-    final rows =
-        await db.query('members', where: 'class_id = ?', whereArgs: [classId]);
+    final rows = await db.query(
+      'members',
+      where: 'class_id = ?',
+      whereArgs: [classId],
+    );
     return rows.map(Member.fromMap).toList();
   }
 }

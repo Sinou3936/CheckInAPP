@@ -9,11 +9,11 @@ class ClassRepository {
       db.insert('classes', classModel.toMap());
 
   Future<void> update(ClassModel classModel) => db.update(
-        'classes',
-        classModel.toMap(),
-        where: 'id = ?',
-        whereArgs: [classModel.id],
-      );
+    'classes',
+    classModel.toMap(),
+    where: 'id = ?',
+    whereArgs: [classModel.id],
+  );
 
   Future<void> delete(int id) =>
       db.delete('classes', where: 'id = ?', whereArgs: [id]);

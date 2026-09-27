@@ -21,20 +21,20 @@ class ClassModel {
   }
 
   Map<String, Object?> toMap() => {
-        if (id != null) 'id': id,
-        'name': name,
-        'start_time': startTime,
-        'operating_days': operatingDays.join(','),
-      };
+    if (id != null) 'id': id,
+    'name': name,
+    'start_time': startTime,
+    'operating_days': operatingDays.join(','),
+  };
 
   factory ClassModel.fromMap(Map<String, Object?> map) => ClassModel(
-        id: map['id'] as int?,
-        name: map['name'] as String,
-        startTime: map['start_time'] as String,
-        operatingDays: (map['operating_days'] as String)
-            .split(',')
-            .where((s) => s.isNotEmpty)
-            .map(int.parse)
-            .toSet(),
-      );
+    id: map['id'] as int?,
+    name: map['name'] as String,
+    startTime: map['start_time'] as String,
+    operatingDays: (map['operating_days'] as String)
+        .split(',')
+        .where((s) => s.isNotEmpty)
+        .map(int.parse)
+        .toSet(),
+  );
 }

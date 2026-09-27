@@ -6,11 +6,10 @@ class DeviceBindingRepository {
   DeviceBindingRepository(this.db);
 
   Future<void> bind(String deviceToken, int memberId) async {
-    await db.insert(
-      'device_bindings',
-      {'device_token': deviceToken, 'member_id': memberId},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('device_bindings', {
+      'device_token': deviceToken,
+      'member_id': memberId,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<DeviceBinding?> getByToken(String deviceToken) async {

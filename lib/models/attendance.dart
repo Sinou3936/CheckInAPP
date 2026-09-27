@@ -16,18 +16,18 @@ class Attendance {
   });
 
   Map<String, Object?> toMap() => {
-        if (id != null) 'id': id,
-        'member_id': memberId,
-        'date': date,
-        'check_in_time': checkInTime,
-        'status': status.name,
-      };
+    if (id != null) 'id': id,
+    'member_id': memberId,
+    'date': date,
+    'check_in_time': checkInTime,
+    'status': status.name,
+  };
 
   factory Attendance.fromMap(Map<String, Object?> map) => Attendance(
-        id: map['id'] as int?,
-        memberId: map['member_id'] as int,
-        date: map['date'] as String,
-        checkInTime: map['check_in_time'] as String?,
-        status: AttendanceStatus.values.byName(map['status'] as String),
-      );
+    id: map['id'] as int?,
+    memberId: map['member_id'] as int,
+    date: map['date'] as String,
+    checkInTime: map['check_in_time'] as String?,
+    status: AttendanceStatus.values.byName(map['status'] as String),
+  );
 }

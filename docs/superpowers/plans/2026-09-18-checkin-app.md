@@ -8,7 +8,7 @@
 
 **Tech Stack:** Flutter Desktop (Windows), Dart, `sqflite_common_ffi` (SQLite), `shelf` + `shelf_router` (embedded HTTP server), `qr_flutter` (QR rendering), `path_provider` (app data directory).
 
-**Spec:** `<repo root>\2026-09-18-checkin-app-design.md`
+**Spec:** `2026-09-18-checkin-app-design.md` (repo root)
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@
 - One member belongs to at most one class — multi-class membership is explicitly out of scope.
 - No real phone numbers are ever stored — only an anonymous per-device token (spec: "실제 연락처 정보 저장용으로 쓰는건 아니지").
 - No admin login for the desktop app (counter-PC assumption from spec).
-- All commands in this plan assume the working directory is `<repo root>` (a subdirectory of the existing WorkFolder git repo — `git` commands work fine run from here).
+- All commands in this plan assume the working directory is the repository root.
 
 ---
 

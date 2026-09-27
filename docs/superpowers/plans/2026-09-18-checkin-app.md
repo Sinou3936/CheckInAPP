@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a Flutter Desktop (Windows) attendance-management app where an admin manages members/classes on a counter PC, and members self-check-in from their own phone by scanning a rotating QR code shown on that PC, over the local network only.
+**Goal:** Build a Flutter Desktop (Windows) attendance-management app where an admin manages members/classes on a counter PC, and members record both arrival and departure from their own phone by scanning a rotating QR code shown on that PC, over the local network only. Each arrival and departure raises a parent-notification event.
 
 **Architecture:** A single Flutter desktop app owns a local SQLite database and runs an embedded HTTP server (shelf) in-process. The admin UI reads/writes the database directly through repository classes. The embedded server exposes a tiny JSON API plus a static check-in web page that a member's phone opens after scanning the QR code; the page talks only to that local server, never to the internet.
 
@@ -15,10 +15,38 @@
 - No cloud/external hosting — the check-in server only ever binds to the local network (spec: "AWS 무료 티어 종료로 배제").
 - Late-arrival grace period: 10 minutes after a class's start time (spec example value).
 - QR token rotation interval: 30 seconds, with a 10-second overlap grace window for tokens that just rotated (spec example value).
+- **Departure (check-out) goes through the same rotating QR as arrival** — a fake departure would send a parent a false "your child has left" notice, so it must not be possible from off-site.
 - One member belongs to at most one class — multi-class membership is explicitly out of scope.
-- No real phone numbers are ever stored — only an anonymous per-device token (spec: "실제 연락처 정보 저장용으로 쓰는건 아니지").
+- Device identification uses an anonymous per-device token only — never a phone number.
+- A member may carry a parent contact, stored solely as the recipient of notification events. (This reverses the original "store no real contact details" constraint; see the spec's 개정 이력.)
+- **Parent notifications are recorded, not sent.** Emission goes through a `ParentNotifier` interface whose only implementation writes to `notification_logs`. No SMS/KakaoTalk provider is integrated in this plan.
 - No admin login for the desktop app (counter-PC assumption from spec).
 - All commands in this plan assume the working directory is the repository root.
+
+---
+
+## 진행 상황 및 개정 상태 (2026-09-28 기준)
+
+**완료된 태스크: 1–4** (모델, 스키마, Member·DeviceBinding 저장소, Class 저장소).
+커밋 기준으로 저장소에 반영되어 있다.
+
+2026-09-28 설계 개정(하원 추가, 학부모 알림 추가)에 따라 태스크 번호를 다시 매겼다.
+개정 전 번호 5–16 은 각각 6–8, 10–18 로 밀렸고, 빈 5번과 9번에 새 태스크가 들어갔다.
+
+| 태스크 | 상태 |
+|---|---|
+| 1–4 | 완료 |
+| **5** | 신규 — 모델·스키마 보강 (하원 시각, 학부모 연락처, 알림 로그) |
+| 6, 7 | **개정 필요** — 하원 기록과 알림 호출이 아직 반영되지 않았다 |
+| 8 | 개정 불필요 (QR 토큰 서비스는 그대로) |
+| **9** | 신규 — 학부모 알림 서비스 |
+| 10, 11, 12 | **개정 필요** — 서버 엔드포인트와 체크인 페이지에 하원 흐름이 아직 없다 |
+| 13, 15 | 개정 불필요 |
+| 14, 16, 17, 18 | **개정 필요** — 학부모 연락처 입력, 하원 현황·알림 내역 표시, 알림 서비스 배선 |
+
+> ⚠️ **"개정 필요"로 표시된 태스크의 본문은 아직 개정 전 설계(등원만 있고 알림이 없는
+> 버전)를 서술하고 있다.** 해당 태스크를 그대로 구현하면 하원과 알림이 빠진 결과물이
+> 나온다. 각 태스크를 시작하기 전에 본문을 먼저 개정할 것.
 
 ---
 
@@ -705,7 +733,307 @@ git commit -m "feat: add class repository"
 
 ---
 
-## Task 5: Attendance repository
+## Task 5: 하원·학부모 알림을 위한 모델·스키마 보강
+
+> 이 태스크는 2026-09-28 설계 개정(하원 추가, 학부모 알림 추가)으로 새로 들어왔다.
+> Task 1·2 에서 이미 만든 모델과 스키마를 여기서 보강한다. **아직 실제 데이터가 없으므로
+> 마이그레이션을 쓰지 않고 `onCreate` 의 CREATE TABLE 문을 직접 고친다.**
+
+**Files:**
+- Modify: `lib/models/attendance.dart` (하원 시각 추가)
+- Modify: `lib/models/member.dart` (학부모 연락처 추가)
+- Create: `lib/models/notification_log.dart`
+- Modify: `lib/db/database_helper.dart` (컬럼 2개 추가, 테이블 1개 추가)
+- Modify: `test/models/models_test.dart` (새 필드 왕복 검증 추가)
+- Modify: `test/db/database_helper_test.dart` (새 테이블 확인 추가)
+
+**Interfaces:**
+- Consumes: Task 1 의 모델들, Task 2 의 스키마.
+- Produces: `Attendance` 에 `String? checkOutTime` (ISO8601, 미하원이면 null),
+  `Member` 에 `String? parentContact`, 새 모델 `NotificationLog(id, memberId,
+  occurredAt, kind, recipient)` 와 `enum NotificationKind { checkIn, checkOut }`.
+  스키마에 `attendance.check_out_time`, `members.parent_contact` 컬럼과
+  `notification_logs` 테이블.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`test/models/models_test.dart` 의 Member / Attendance 테스트를 아래로 교체하고,
+NotificationLog 테스트를 추가한다 (파일 상단에 `import 'package:checkin_app/models/notification_log.dart';` 추가):
+
+```dart
+  test('Member round-trips through toMap/fromMap', () {
+    const member = Member(
+      id: 1,
+      name: '홍길동',
+      classId: 2,
+      parentContact: '010-0000-0000',
+    );
+    final restored = Member.fromMap(member.toMap());
+    expect(restored.id, 1);
+    expect(restored.name, '홍길동');
+    expect(restored.classId, 2);
+    expect(restored.parentContact, '010-0000-0000');
+  });
+
+  test('Member round-trips with no parent contact', () {
+    const member = Member(id: 1, name: '홍길동', classId: null);
+    final restored = Member.fromMap(member.toMap());
+    expect(restored.parentContact, isNull);
+  });
+
+  test('Attendance round-trips including null checkInTime', () {
+    const attendance = Attendance(
+      id: 1,
+      memberId: 5,
+      date: '2026-09-18',
+      checkInTime: null,
+      checkOutTime: null,
+      status: AttendanceStatus.absent,
+    );
+    final restored = Attendance.fromMap(attendance.toMap());
+    expect(restored.memberId, 5);
+    expect(restored.checkInTime, isNull);
+    expect(restored.checkOutTime, isNull);
+    expect(restored.status, AttendanceStatus.absent);
+  });
+
+  test('Attendance round-trips a completed day with both times', () {
+    const attendance = Attendance(
+      id: 1,
+      memberId: 5,
+      date: '2026-09-18',
+      checkInTime: '2026-09-18T15:02:00.000',
+      checkOutTime: '2026-09-18T18:30:00.000',
+      status: AttendanceStatus.present,
+    );
+    final restored = Attendance.fromMap(attendance.toMap());
+    expect(restored.checkInTime, '2026-09-18T15:02:00.000');
+    expect(restored.checkOutTime, '2026-09-18T18:30:00.000');
+  });
+
+  test('NotificationLog round-trips', () {
+    const log = NotificationLog(
+      id: 1,
+      memberId: 7,
+      occurredAt: '2026-09-18T18:30:00.000',
+      kind: NotificationKind.checkOut,
+      recipient: '010-0000-0000',
+    );
+    final restored = NotificationLog.fromMap(log.toMap());
+    expect(restored.memberId, 7);
+    expect(restored.kind, NotificationKind.checkOut);
+    expect(restored.recipient, '010-0000-0000');
+  });
+```
+
+`test/db/database_helper_test.dart` 의 기대 테이블 목록에 `notification_logs` 를 추가하고,
+컬럼 확인 테스트를 덧붙인다:
+
+```dart
+  test('attendance and members carry the columns added for checkout/notification', () async {
+    final db = await openTestDatabase();
+
+    final attendanceCols = (await db.rawQuery('PRAGMA table_info(attendance)'))
+        .map((r) => r['name'])
+        .toSet();
+    expect(attendanceCols, contains('check_out_time'));
+
+    final memberCols = (await db.rawQuery('PRAGMA table_info(members)'))
+        .map((r) => r['name'])
+        .toSet();
+    expect(memberCols, contains('parent_contact'));
+
+    await db.close();
+  });
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/models/models_test.dart test/db/database_helper_test.dart`
+Expected: FAIL — `checkOutTime`/`parentContact` 이름 없음, `notification_log.dart` 없음,
+`notification_logs` 테이블 없음.
+
+- [ ] **Step 3: 모델 보강**
+
+`lib/models/attendance.dart` 를 아래로 교체:
+
+```dart
+enum AttendanceStatus { present, late, absent }
+
+class Attendance {
+  final int? id;
+  final int memberId;
+  final String date; // "YYYY-MM-DD"
+  final String? checkInTime; // ISO8601, 자동 결석 처리된 경우 null
+  final String? checkOutTime; // ISO8601, 아직 하원하지 않았으면 null
+  final AttendanceStatus status;
+
+  const Attendance({
+    this.id,
+    required this.memberId,
+    required this.date,
+    this.checkInTime,
+    this.checkOutTime,
+    required this.status,
+  });
+
+  Map<String, Object?> toMap() => {
+    if (id != null) 'id': id,
+    'member_id': memberId,
+    'date': date,
+    'check_in_time': checkInTime,
+    'check_out_time': checkOutTime,
+    'status': status.name,
+  };
+
+  factory Attendance.fromMap(Map<String, Object?> map) => Attendance(
+    id: map['id'] as int?,
+    memberId: map['member_id'] as int,
+    date: map['date'] as String,
+    checkInTime: map['check_in_time'] as String?,
+    checkOutTime: map['check_out_time'] as String?,
+    status: AttendanceStatus.values.byName(map['status'] as String),
+  );
+}
+```
+
+`lib/models/member.dart` 를 아래로 교체 (`copyWith` 는 `parentContact` 도 받는다):
+
+```dart
+class Member {
+  final int? id;
+  final String name;
+  final int? classId;
+  final String? parentContact;
+
+  const Member({this.id, required this.name, this.classId, this.parentContact});
+
+  Map<String, Object?> toMap() => {
+    if (id != null) 'id': id,
+    'name': name,
+    'class_id': classId,
+    'parent_contact': parentContact,
+  };
+
+  factory Member.fromMap(Map<String, Object?> map) => Member(
+    id: map['id'] as int?,
+    name: map['name'] as String,
+    classId: map['class_id'] as int?,
+    parentContact: map['parent_contact'] as String?,
+  );
+
+  Member copyWith({int? id, String? name, int? classId, String? parentContact}) =>
+      Member(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        classId: classId ?? this.classId,
+        parentContact: parentContact ?? this.parentContact,
+      );
+}
+```
+
+`lib/models/notification_log.dart` 생성:
+
+```dart
+enum NotificationKind { checkIn, checkOut }
+
+class NotificationLog {
+  final int? id;
+  final int memberId;
+  final String occurredAt; // ISO8601
+  final NotificationKind kind;
+  final String? recipient; // 학부모 연락처. 등록되어 있지 않으면 null
+
+  const NotificationLog({
+    this.id,
+    required this.memberId,
+    required this.occurredAt,
+    required this.kind,
+    this.recipient,
+  });
+
+  Map<String, Object?> toMap() => {
+    if (id != null) 'id': id,
+    'member_id': memberId,
+    'occurred_at': occurredAt,
+    'kind': kind.name,
+    'recipient': recipient,
+  };
+
+  factory NotificationLog.fromMap(Map<String, Object?> map) => NotificationLog(
+    id: map['id'] as int?,
+    memberId: map['member_id'] as int,
+    occurredAt: map['occurred_at'] as String,
+    kind: NotificationKind.values.byName(map['kind'] as String),
+    recipient: map['recipient'] as String?,
+  );
+}
+```
+
+- [ ] **Step 4: 스키마 보강**
+
+`lib/db/database_helper.dart` 의 `onCreate` 안에서 `members` 와 `attendance` 의
+CREATE TABLE 문에 컬럼을 추가하고, 테이블 하나를 새로 만든다. (마이그레이션 없이 직접
+수정하는 이유: 아직 어디에도 실제 데이터가 없다.)
+
+`members` 테이블:
+
+```sql
+          CREATE TABLE members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            class_id INTEGER,
+            parent_contact TEXT,
+            FOREIGN KEY (class_id) REFERENCES classes (id)
+          )
+```
+
+`attendance` 테이블:
+
+```sql
+          CREATE TABLE attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            check_in_time TEXT,
+            check_out_time TEXT,
+            status TEXT NOT NULL,
+            UNIQUE(member_id, date),
+            FOREIGN KEY (member_id) REFERENCES members (id)
+          )
+```
+
+그리고 `attendance` 생성 뒤에 아래를 추가:
+
+```dart
+        await db.execute('''
+          CREATE TABLE notification_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            occurred_at TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            recipient TEXT,
+            FOREIGN KEY (member_id) REFERENCES members (id)
+          )
+        ''');
+```
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `flutter test`
+Expected: PASS — 기존 테스트가 새 필드로도 전부 통과해야 한다. Task 3·4 의 저장소 테스트는
+`toMap`/`fromMap` 을 거치므로 코드 수정 없이 통과한다.
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add lib/models lib/db test/models test/db
+git commit -m "feat: 하원 시각·학부모 연락처·알림 로그 스키마 추가"
+```
+
+---
+
+## Task 6: Attendance repository
 
 **Files:**
 - Create: `lib/repositories/attendance_repository.dart`
@@ -860,7 +1188,7 @@ git commit -m "feat: add attendance repository"
 
 ---
 
-## Task 6: AttendanceService (status determination, check-in, auto-absence)
+## Task 7: AttendanceService (status determination, check-in, auto-absence)
 
 **Files:**
 - Create: `lib/services/attendance_service.dart`
@@ -1105,7 +1433,7 @@ git commit -m "feat: add attendance service with status rules and auto-absence"
 
 ---
 
-## Task 7: QrTokenService (rotating check-in token)
+## Task 8: QrTokenService (rotating check-in token)
 
 **Files:**
 - Create: `lib/services/qr_token_service.dart`
@@ -1235,7 +1563,220 @@ git commit -m "feat: add rotating qr token service"
 
 ---
 
-## Task 8: NetworkInfo + CheckInServer read endpoints
+## Task 9: 학부모 알림 서비스 (인터페이스 + 기록 구현체)
+
+> 2026-09-28 설계 개정으로 새로 들어온 태스크.
+> **지금은 실제 문자/카톡을 보내지 않는다.** 발송 지점을 인터페이스로 만들어 두고,
+> 이번 구현체는 알림 이벤트를 DB에 기록만 한다. 나중에 업체 계약이 되면 이 인터페이스
+> 뒤에 실제 발송기를 갈아끼운다.
+
+**Files:**
+- Create: `lib/repositories/notification_log_repository.dart`
+- Create: `lib/services/notification_service.dart`
+- Test: `test/services/notification_service_test.dart`
+
+**Interfaces:**
+- Consumes: `NotificationLog`, `NotificationKind` (Task 5), `MemberRepository` (Task 3),
+  `openTestDatabase()` (Task 2).
+- Produces: `NotificationLogRepository(Database db)` 에 `insert(NotificationLog) ->
+  Future<int>`, `getRecent({int limit}) -> Future<List<NotificationLog>>` (최신순).
+  추상 클래스 `ParentNotifier` 에 `Future<void> notify(NotificationLog log)`.
+  `RecordingParentNotifier(NotificationLogRepository)` 가 그 구현체.
+  `NotificationService({required MemberRepository memberRepository, required
+  ParentNotifier notifier})` 에 `Future<void> onCheckIn(int memberId, DateTime at)`,
+  `Future<void> onCheckOut(int memberId, DateTime at)`.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`test/services/notification_service_test.dart` 생성:
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:checkin_app/models/member.dart';
+import 'package:checkin_app/models/notification_log.dart';
+import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/repositories/notification_log_repository.dart';
+import 'package:checkin_app/services/notification_service.dart';
+import '../helpers/test_db.dart';
+
+void main() {
+  test('등원 시 학부모 연락처를 수신처로 하는 알림이 기록된다', () async {
+    final db = await openTestDatabase();
+    final memberRepo = MemberRepository(db);
+    final logRepo = NotificationLogRepository(db);
+    final service = NotificationService(
+      memberRepository: memberRepo,
+      notifier: RecordingParentNotifier(logRepo),
+    );
+    final memberId = await memberRepo.insert(
+      const Member(name: '홍길동', classId: null, parentContact: '010-1111-2222'),
+    );
+
+    await service.onCheckIn(memberId, DateTime(2026, 9, 28, 15, 2));
+
+    final logs = await logRepo.getRecent();
+    expect(logs, hasLength(1));
+    expect(logs.single.memberId, memberId);
+    expect(logs.single.kind, NotificationKind.checkIn);
+    expect(logs.single.recipient, '010-1111-2222');
+    expect(logs.single.occurredAt, DateTime(2026, 9, 28, 15, 2).toIso8601String());
+    await db.close();
+  });
+
+  test('하원 시에도 알림이 기록된다', () async {
+    final db = await openTestDatabase();
+    final memberRepo = MemberRepository(db);
+    final logRepo = NotificationLogRepository(db);
+    final service = NotificationService(
+      memberRepository: memberRepo,
+      notifier: RecordingParentNotifier(logRepo),
+    );
+    final memberId = await memberRepo.insert(
+      const Member(name: '홍길동', classId: null, parentContact: '010-1111-2222'),
+    );
+
+    await service.onCheckOut(memberId, DateTime(2026, 9, 28, 18, 30));
+
+    final logs = await logRepo.getRecent();
+    expect(logs.single.kind, NotificationKind.checkOut);
+    await db.close();
+  });
+
+  test('학부모 연락처가 없어도 알림은 수신처 없이 기록된다', () async {
+    final db = await openTestDatabase();
+    final memberRepo = MemberRepository(db);
+    final logRepo = NotificationLogRepository(db);
+    final service = NotificationService(
+      memberRepository: memberRepo,
+      notifier: RecordingParentNotifier(logRepo),
+    );
+    final memberId = await memberRepo.insert(const Member(name: '무연락', classId: null));
+
+    await service.onCheckIn(memberId, DateTime(2026, 9, 28, 15, 0));
+
+    final logs = await logRepo.getRecent();
+    expect(logs.single.recipient, isNull);
+    await db.close();
+  });
+
+  test('getRecent 는 최신 발생 순으로 돌려준다', () async {
+    final db = await openTestDatabase();
+    final logRepo = NotificationLogRepository(db);
+    await logRepo.insert(const NotificationLog(
+      memberId: 1,
+      occurredAt: '2026-09-28T15:00:00.000',
+      kind: NotificationKind.checkIn,
+    ));
+    await logRepo.insert(const NotificationLog(
+      memberId: 1,
+      occurredAt: '2026-09-28T18:00:00.000',
+      kind: NotificationKind.checkOut,
+    ));
+
+    final logs = await logRepo.getRecent();
+    expect(logs.first.kind, NotificationKind.checkOut);
+    expect(logs.last.kind, NotificationKind.checkIn);
+    await db.close();
+  });
+}
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/services/notification_service_test.dart`
+Expected: FAIL — 두 파일이 아직 없다.
+
+- [ ] **Step 3: 저장소 구현**
+
+`lib/repositories/notification_log_repository.dart` 생성:
+
+```dart
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:checkin_app/models/notification_log.dart';
+
+class NotificationLogRepository {
+  final Database db;
+  NotificationLogRepository(this.db);
+
+  Future<int> insert(NotificationLog log) =>
+      db.insert('notification_logs', log.toMap());
+
+  Future<List<NotificationLog>> getRecent({int limit = 50}) async {
+    final rows = await db.query(
+      'notification_logs',
+      orderBy: 'occurred_at DESC',
+      limit: limit,
+    );
+    return rows.map(NotificationLog.fromMap).toList();
+  }
+}
+```
+
+- [ ] **Step 4: 서비스 구현**
+
+`lib/services/notification_service.dart` 생성:
+
+```dart
+import 'package:checkin_app/models/notification_log.dart';
+import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/repositories/notification_log_repository.dart';
+
+/// 학부모 알림을 실제로 내보내는 지점.
+///
+/// 지금은 기록만 하는 구현체 하나뿐이다. 문자/카카오 알림톡 발송기는 업체 계약과
+/// 사업자등록이 가능해지는 시점에 이 인터페이스 뒤에 붙인다.
+abstract class ParentNotifier {
+  Future<void> notify(NotificationLog log);
+}
+
+/// 알림 이벤트를 DB에 남기기만 하는 구현체. 관리자 화면이 이 기록을 보여준다.
+class RecordingParentNotifier implements ParentNotifier {
+  final NotificationLogRepository repository;
+  RecordingParentNotifier(this.repository);
+
+  @override
+  Future<void> notify(NotificationLog log) => repository.insert(log).then((_) {});
+}
+
+class NotificationService {
+  final MemberRepository memberRepository;
+  final ParentNotifier notifier;
+
+  NotificationService({required this.memberRepository, required this.notifier});
+
+  Future<void> onCheckIn(int memberId, DateTime at) =>
+      _emit(memberId, at, NotificationKind.checkIn);
+
+  Future<void> onCheckOut(int memberId, DateTime at) =>
+      _emit(memberId, at, NotificationKind.checkOut);
+
+  Future<void> _emit(int memberId, DateTime at, NotificationKind kind) async {
+    final member = await memberRepository.getById(memberId);
+    await notifier.notify(NotificationLog(
+      memberId: memberId,
+      occurredAt: at.toIso8601String(),
+      kind: kind,
+      recipient: member?.parentContact,
+    ));
+  }
+}
+```
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `flutter test test/services/notification_service_test.dart`
+Expected: PASS (4 tests)
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add lib/repositories/notification_log_repository.dart lib/services/notification_service.dart test/services/notification_service_test.dart
+git commit -m "feat: 학부모 알림 서비스와 알림 기록 저장소 추가"
+```
+
+---
+
+## Task 10: NetworkInfo + CheckInServer read endpoints
 
 **Files:**
 - Create: `lib/services/network_info.dart`
@@ -1244,7 +1785,7 @@ git commit -m "feat: add rotating qr token service"
 - Test: `test/server/checkin_server_read_test.dart`
 
 **Interfaces:**
-- Consumes: `MemberRepository`, `DeviceBindingRepository` (Task 3), `AttendanceService` (Task 6), `QrTokenService` (Task 7).
+- Consumes: `MemberRepository`, `DeviceBindingRepository` (Task 3), `AttendanceService` (Task 7), `QrTokenService` (Task 8).
 - Produces: `NetworkInfo` with `Future<String?> getLocalIPv4()`. `CheckInServer({required MemberRepository memberRepository, required DeviceBindingRepository deviceBindingRepository, required AttendanceService attendanceService, required QrTokenService qrTokenService})` with `Future<int> start({int port = 8080}) -> Future<int>` (returns actual bound port) and `Future<void> stop()`. Routes added this task: `GET /api/members`, `GET /api/device-status?deviceToken=`. `POST /api/checkin` and `GET /checkin` are added in Tasks 9-10 but the router is structured here so later tasks only add handlers.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1457,14 +1998,14 @@ git commit -m "feat: add local http server with member list and device status en
 
 ---
 
-## Task 9: CheckInServer check-in endpoint (POST /api/checkin)
+## Task 11: CheckInServer check-in endpoint (POST /api/checkin)
 
 **Files:**
 - Modify: `lib/server/checkin_server.dart`
 - Test: `test/server/checkin_server_checkin_test.dart`
 
 **Interfaces:**
-- Consumes: everything from Task 8's `CheckInServer`, plus `AttendanceService.recordCheckIn` (Task 6) and `DeviceBindingRepository.bind` (Task 3).
+- Consumes: everything from Task 10's `CheckInServer`, plus `AttendanceService.recordCheckIn` (Task 7) and `DeviceBindingRepository.bind` (Task 3).
 - Produces: `POST /api/checkin` accepting JSON body `{token, deviceToken?, memberId?}`. Success: `200 {success: true, memberName, status}`. Failure: `400 {error: 'invalid_token'}` for a bad/expired QR token, `400 {error: 'member_required'}` when neither an already-bound device nor an explicit `memberId` is given.
 
 - [ ] **Step 1: Write the failing test**
@@ -1719,7 +2260,7 @@ git commit -m "feat: add checkin endpoint with token validation and device bindi
 
 ---
 
-## Task 10: Check-in web page + serving route
+## Task 12: Check-in web page + serving route
 
 **Files:**
 - Create: `lib/server/checkin_page.dart`
@@ -1913,14 +2454,14 @@ git commit -m "feat: serve the student check-in web page"
 
 ---
 
-## Task 11: CheckInAppController (QR rotation + server lifecycle)
+## Task 13: CheckInAppController (QR rotation + server lifecycle)
 
 **Files:**
 - Create: `lib/services/checkin_app_controller.dart`
 - Test: `test/services/checkin_app_controller_test.dart`
 
 **Interfaces:**
-- Consumes: `CheckInServer` (Tasks 8-10), `QrTokenService` (Task 7), `NetworkInfo` (Task 8).
+- Consumes: `CheckInServer` (Tasks 8-10), `QrTokenService` (Task 8), `NetworkInfo` (Task 10).
 - Produces: `CheckInAppController({required QrTokenService qrTokenService, required CheckInServer server, required NetworkInfo networkInfo, int port = 8080, Duration rotationInterval = Duration(seconds: 30)})` with `ValueNotifier<String?> qrUrl`, `Future<void> start()`, `Future<void> rotateNow()`, `Future<void> stop()`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2054,7 +2595,7 @@ git commit -m "feat: add checkin app controller tying together server and qr rot
 
 ---
 
-## Task 12: Admin UI — Member management screen
+## Task 14: Admin UI — Member management screen
 
 **Files:**
 - Create: `lib/ui/screens/member_management_screen.dart`
@@ -2256,7 +2797,7 @@ git commit -m "feat: add member management screen"
 
 ---
 
-## Task 13: Admin UI — Class management screen
+## Task 15: Admin UI — Class management screen
 
 **Files:**
 - Create: `lib/ui/screens/class_management_screen.dart`
@@ -2464,14 +3005,14 @@ git commit -m "feat: add class management screen"
 
 ---
 
-## Task 14: Admin UI — Live dashboard (QR + today's check-ins)
+## Task 16: Admin UI — Live dashboard (QR + today's check-ins)
 
 **Files:**
 - Create: `lib/ui/screens/dashboard_screen.dart`
 - Test: `test/ui/dashboard_screen_test.dart`
 
 **Interfaces:**
-- Consumes: `CheckInAppController` (Task 11), `AttendanceRepository`, `MemberRepository` (Tasks 3, 5).
+- Consumes: `CheckInAppController` (Task 13), `AttendanceRepository`, `MemberRepository` (Tasks 3, 5).
 - Produces: `DashboardScreen({required CheckInAppController controller, required AttendanceRepository attendanceRepository, required MemberRepository memberRepository})` — shows a QR code built from `controller.qrUrl` and a list of today's checked-in members, refreshed on a timer.
 
 - [ ] **Step 1: Write the failing test**
@@ -2668,7 +3209,7 @@ git commit -m "feat: add live dashboard with qr code and today's check-ins"
 
 ---
 
-## Task 15: Admin UI — Attendance history screen
+## Task 17: Admin UI — Attendance history screen
 
 **Files:**
 - Create: `lib/ui/screens/attendance_history_screen.dart`
@@ -2831,7 +3372,7 @@ git commit -m "feat: add attendance history screen"
 
 ---
 
-## Task 16: App shell wiring (main.dart, navigation, daily absence scheduler)
+## Task 18: App shell wiring (main.dart, navigation, daily absence scheduler)
 
 **Files:**
 - Create: `lib/services/absence_scheduler.dart`

@@ -15,7 +15,28 @@
 - No cloud/external hosting — the check-in server only ever binds to the local network (spec: "AWS 무료 티어 종료로 배제").
 - Late-arrival grace period: 10 minutes after a class's start time (spec example value).
 - QR token rotation interval: 30 seconds, with a 10-second overlap grace window for tokens that just rotated (spec example value).
-- **Departure (check-out) goes through the same rotating QR as arrival** — a fake departure would send a parent a false "your child has left" notice, so it must not be possible from off-site.
+- **등원용 QR 과 하원용 QR 이 따로 뜬다.** 스캔한 QR 이 의도를 결정하므로 서버는 등원/하원을
+  추론하지 않는다. 두 QR 은 **서로 독립된 토큰 값**을 가진다 — 한 토큰에 종류를 파라미터로
+  붙이면 등원 QR 값만 고쳐 하원을 위조할 수 있다.
+- **하원도 등원과 같이 회전 QR 을 거친다** — 가짜 하원은 학부모에게 "자녀가 나갔다"는 거짓
+  통보를 보내므로 현장 밖에서 찍는 것이 가능해서는 안 된다.
+- **확인 세션 유효 시간: 5분.** QR 토큰은 페이지가 열릴 때 검증하고 그 스캔에 대한 세션을
+  발급한다. 최초 1회 절차가 QR 갱신 주기(30초)보다 오래 걸려, 토큰만으로 검증하면 반드시
+  실패한다.
+- **하원 가능 창: 12시간.** 하원 QR 은 등원 시각이 12시간 이내인 열린 세션만 닫는다. 열린
+  세션이 둘 이상이면 등원이 가장 최근인 것을 닫는다.
+- **세션은 등원한 날짜에 귀속된다.** 자정을 넘겨 하원해도 등원한 날의 행에 기록하고, 저장되는
+  하원 시각은 실제 시각(다음 날)이다.
+- **한 회원은 하루에 한 번만 등원한다** (`UNIQUE(member_id, date)`). 하루 2회 이상 방문은
+  스코프 밖.
+- **최초 기기 바인딩은 이름 + 학부모 연락처 뒷 4자리로 확인한다.** 연락처가 등록되지 않은
+  회원은 혼자 바인딩할 수 없고 관리자가 대행한다. 같은 기기 토큰에서 5회 연속 실패하면
+  10분 차단한다. 회원 명단 조회에도 유효한 세션을 요구한다.
+- **모든 바인딩은 append-only 로 기록된다** (`binding_logs`). 재바인딩으로 현재 매핑이
+  덮어써져도 사칭 흔적이 남아야 한다.
+- **관리자 보정은 학부모 알림을 발생시키지 않는다.** 알림은 학생이 QR 을 스캔하는 경로에서만
+  나간다.
+- **업종(학원/헬스장)별 분기 모드를 만들지 않는다.** QR 2개 방식이 양쪽에서 동일하게 동작한다.
 - One member belongs to at most one class — multi-class membership is explicitly out of scope.
 - Device identification uses an anonymous per-device token only — never a phone number.
 - A member may carry a parent contact, stored solely as the recipient of notification events. (This reverses the original "store no real contact details" constraint; see the spec's 개정 이력.)
@@ -25,28 +46,46 @@
 
 ---
 
-## 진행 상황 및 개정 상태 (2026-09-28 기준)
+## 진행 상황 및 개정 상태 (2026-10-16 기준)
 
 **완료된 태스크: 1–4** (모델, 스키마, Member·DeviceBinding 저장소, Class 저장소).
 커밋 기준으로 저장소에 반영되어 있다.
 
-2026-09-28 설계 개정(하원 추가, 학부모 알림 추가)에 따라 태스크 번호를 다시 매겼다.
-개정 전 번호 5–16 은 각각 6–8, 10–18 로 밀렸고, 빈 5번과 9번에 새 태스크가 들어갔다.
+**이번 실행 범위는 Task 5–10 이다.** 2026-10-16 스펙 개정(등원/하원 QR 분리, 최초 본인 확인
+강화, 세션 귀속 규칙)을 반영해 Task 5–10 의 본문을 전부 다시 썼다.
 
 | 태스크 | 상태 |
 |---|---|
 | 1–4 | 완료 |
-| **5** | 신규 — 모델·스키마 보강 (하원 시각, 학부모 연락처, 알림 로그) |
-| 6, 7 | **개정 필요** — 하원 기록과 알림 호출이 아직 반영되지 않았다 |
-| 8 | 개정 불필요 (QR 토큰 서비스는 그대로) |
-| **9** | 신규 — 학부모 알림 서비스 |
-| 10, 11, 12 | **개정 필요** — 서버 엔드포인트와 체크인 페이지에 하원 흐름이 아직 없다 |
-| 13, 15 | 개정 불필요 |
-| 14, 16, 17, 18 | **개정 필요** — 학부모 연락처 입력, 하원 현황·알림 내역 표시, 알림 서비스 배선 |
+| **5–10** | **개정 완료 — 이번 실행 범위.** 2026-10-16 스펙 기준으로 본문이 최신이다 |
+| 11, 12 | **개정 필요** — 체크인 엔드포인트와 페이지에 QR 2종·확인 세션·뒷 4자리 확인·알림 호출이 아직 없다 |
+| 13 | **개정 필요** — QR 회전이 토큰 2종을 함께 돌려야 한다 |
+| 14 | **개정 필요** — 회원 양식에 학부모 연락처 입력이 필요하다 |
+| 15 | 개정 불필요 |
+| 16, 17 | **개정 필요** — 하원 현황·미하원 표시, 출결 기록 보정, 바인딩 이력·알림 내역 화면 |
+| 18 | **개정 필요** — 알림 서비스 배선, 결석 처리 따라잡기(`app_state`) |
 
-> ⚠️ **"개정 필요"로 표시된 태스크의 본문은 아직 개정 전 설계(등원만 있고 알림이 없는
-> 버전)를 서술하고 있다.** 해당 태스크를 그대로 구현하면 하원과 알림이 빠진 결과물이
-> 나온다. 각 태스크를 시작하기 전에 본문을 먼저 개정할 것.
+> ⚠️ **11–18 의 본문은 아직 개정 전 설계를 서술한다.** 그대로 구현하면 QR 2종·확인 세션·
+> 본인 확인·보정 기능이 빠진 결과물이 나온다. 각 태스크를 시작하기 전에 본문을 먼저 개정할 것.
+> 스펙과 충돌하면 스펙이 이긴다 (`2026-09-18-checkin-app-design.md`).
+
+---
+
+## Review Focus
+
+이번 범위(Task 5–10)의 태스크 테스트가 직접 다루지 않으면서, 쓰는 사람을 물 가능성이 높은
+입력·상황들. 각 줄의 테스트는 그 코드를 소유한 태스크에 이미 넣어두었다.
+
+- **자정을 넘긴 하원** — 23:50 등원 후 00:20 하원. 등원한 날짜의 행에 들어가야 하고, 다음 날
+  행이 새로 생기거나 등원 없는 하원으로 기록되어서는 안 된다 (Task 6·7).
+- **열린 세션이 둘인 상태의 하원** — 어제 안 닫힌 세션 + 오늘 등원. 오래된 쪽을 닫으면 어제
+  방문에 엉뚱한 하원 시각이 붙고 거짓 알림까지 나간다. 최근 쪽을 닫아야 한다 (Task 6·7).
+- **등원 없이 하원 QR 만 스캔** — 저녁 시각의 등원(지각)으로 잘못 기록되지 않고
+  `noOpenSession` 으로 거부되어야 한다 (Task 7).
+- **등원 QR 재스캔** — 하원으로 넘어가지 않고 기록도 바뀌지 않아야 한다. 이번 개정의 존재
+  이유가 이 입력이다 (Task 7).
+- **QR 갱신 주기를 넘긴 최초 1회 절차** — 이름 찾기 + 4자리 입력이 30초를 넘겨도 절차가
+  깨지지 않아야 한다. 확인 세션이 이를 흡수한다 (Task 8·10).
 
 ---
 
@@ -733,842 +772,598 @@ git commit -m "feat: add class repository"
 
 ---
 
-## Task 5: 하원·학부모 알림을 위한 모델·스키마 보강
+## Task 5: 데이터 계층 보강 (하원·학부모 연락처·알림 로그·바인딩 이력)
 
-> 이 태스크는 2026-09-28 설계 개정(하원 추가, 학부모 알림 추가)으로 새로 들어왔다.
-> Task 1·2 에서 이미 만든 모델과 스키마를 여기서 보강한다. **아직 실제 데이터가 없으므로
-> 마이그레이션을 쓰지 않고 `onCreate` 의 CREATE TABLE 문을 직접 고친다.**
+> 2026-09-28 개정(하원, 학부모 알림)과 2026-10-16 개정(바인딩 이력, 결석 처리 따라잡기)이
+> 요구하는 모델과 스키마를 한 번에 넓힌다. **아직 어디에도 실데이터가 없으므로 마이그레이션을
+> 쓰지 않고 `onCreate` 의 CREATE TABLE 문을 직접 고친다.** 스키마를 두 번 건드리지 않기 위해
+> 이번 범위(Task 5~10)에서 당장 쓰지 않는 `app_state` 테이블까지 여기서 함께 만든다.
+>
+> `pending_bindings` 테이블은 **만들지 않는다** — 2026-10-16 스펙 개정에서 관리자 승인 대기
+> 방식을 채택하지 않기로 했다.
 
 **Files:**
 - Modify: `lib/models/attendance.dart` (하원 시각 추가)
 - Modify: `lib/models/member.dart` (학부모 연락처 추가)
+- Modify: `lib/models/device_binding.dart` (바인딩 시각 추가)
 - Create: `lib/models/notification_log.dart`
-- Modify: `lib/db/database_helper.dart` (컬럼 2개 추가, 테이블 1개 추가)
-- Modify: `test/models/models_test.dart` (새 필드 왕복 검증 추가)
-- Modify: `test/db/database_helper_test.dart` (새 테이블 확인 추가)
+- Create: `lib/models/binding_log.dart`
+- Modify: `lib/db/database_helper.dart` (컬럼 3개 추가, 테이블 3개 추가)
+- Modify: `lib/repositories/device_binding_repository.dart` (바인딩 시각 기록 + 이력 적재)
+- Modify: `test/models/models_test.dart`
+- Modify: `test/db/database_helper_test.dart`
+- Modify: `test/repositories/device_binding_repository_test.dart`
 
 **Interfaces:**
-- Consumes: Task 1 의 모델들, Task 2 의 스키마.
-- Produces: `Attendance` 에 `String? checkOutTime` (ISO8601, 미하원이면 null),
-  `Member` 에 `String? parentContact`, 새 모델 `NotificationLog(id, memberId,
-  occurredAt, kind, recipient)` 와 `enum NotificationKind { checkIn, checkOut }`.
-  스키마에 `attendance.check_out_time`, `members.parent_contact` 컬럼과
-  `notification_logs` 테이블.
+- Consumes: Task 1 의 모델들, Task 2 의 스키마, Task 3 의 `DeviceBindingRepository`.
+- Produces:
+  - `Attendance` 에 `String? checkOutTime` (ISO8601, 아직 하원하지 않았으면 null)
+  - `Member` 에 `String? parentContact`
+  - `DeviceBinding` 에 `String boundAt` (ISO8601, 필수)
+  - `enum NotificationKind { checkIn, checkOut }` 와
+    `NotificationLog({int? id, required int memberId, required String occurredAt,
+    required NotificationKind kind, String? recipient})`
+  - `BindingLog({int? id, required String deviceToken, required int memberId,
+    required String occurredAt})`
+  - `DeviceBindingRepository.bind(String deviceToken, int memberId, {DateTime? now})` —
+    현재 매핑을 갱신하면서 `binding_logs` 에 한 줄을 **덧붙인다**
+  - 스키마: `attendance.check_out_time`, `members.parent_contact`,
+    `device_bindings.bound_at`, 테이블 `notification_logs`, `binding_logs`, `app_state`
+- 모든 모델은 기존대로 `toMap()` / `fromMap(Map<String,Object?>)` 을 갖는다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`test/models/models_test.dart` 의 Member / Attendance 테스트를 아래로 교체하고,
-NotificationLog 테스트를 추가한다 (파일 상단에 `import 'package:checkin_app/models/notification_log.dart';` 추가):
+`test/models/models_test.dart` 의 Member / Attendance / DeviceBinding 테스트를 새 필드까지
+검증하도록 고치고, 모델 2개의 왕복 테스트를 추가한다. 테스트 이름과 단정은 다음과 같다.
 
 ```dart
-  test('Member round-trips through toMap/fromMap', () {
-    const member = Member(
-      id: 1,
-      name: '홍길동',
-      classId: 2,
-      parentContact: '010-0000-0000',
-    );
-    final restored = Member.fromMap(member.toMap());
-    expect(restored.id, 1);
-    expect(restored.name, '홍길동');
-    expect(restored.classId, 2);
-    expect(restored.parentContact, '010-0000-0000');
-  });
+test('Member 는 학부모 연락처를 포함해 왕복한다', () {
+  const member = Member(id: 1, name: '홍길동', classId: 2, parentContact: '010-0000-0000');
+  final restored = Member.fromMap(member.toMap());
+  expect(restored.parentContact, '010-0000-0000');
+});
 
-  test('Member round-trips with no parent contact', () {
-    const member = Member(id: 1, name: '홍길동', classId: null);
-    final restored = Member.fromMap(member.toMap());
-    expect(restored.parentContact, isNull);
-  });
+test('Member 는 학부모 연락처가 없어도 왕복한다', () {
+  const member = Member(id: 1, name: '홍길동', classId: null);
+  expect(Member.fromMap(member.toMap()).parentContact, isNull);
+});
 
-  test('Attendance round-trips including null checkInTime', () {
-    const attendance = Attendance(
-      id: 1,
-      memberId: 5,
-      date: '2026-09-18',
-      checkInTime: null,
-      checkOutTime: null,
-      status: AttendanceStatus.absent,
-    );
-    final restored = Attendance.fromMap(attendance.toMap());
-    expect(restored.memberId, 5);
-    expect(restored.checkInTime, isNull);
-    expect(restored.checkOutTime, isNull);
-    expect(restored.status, AttendanceStatus.absent);
-  });
+test('Attendance 는 하원 전 상태(하원 시각 null)로 왕복한다', () {
+  const attendance = Attendance(
+    id: 1, memberId: 5, date: '2026-10-16',
+    checkInTime: '2026-10-16T15:02:00.000', checkOutTime: null,
+    status: AttendanceStatus.present,
+  );
+  final restored = Attendance.fromMap(attendance.toMap());
+  expect(restored.checkInTime, '2026-10-16T15:02:00.000');
+  expect(restored.checkOutTime, isNull);
+});
 
-  test('Attendance round-trips a completed day with both times', () {
-    const attendance = Attendance(
-      id: 1,
-      memberId: 5,
-      date: '2026-09-18',
-      checkInTime: '2026-09-18T15:02:00.000',
-      checkOutTime: '2026-09-18T18:30:00.000',
-      status: AttendanceStatus.present,
-    );
-    final restored = Attendance.fromMap(attendance.toMap());
-    expect(restored.checkInTime, '2026-09-18T15:02:00.000');
-    expect(restored.checkOutTime, '2026-09-18T18:30:00.000');
-  });
+test('Attendance 는 자정을 넘긴 하원 시각도 그대로 왕복한다', () {
+  const attendance = Attendance(
+    id: 1, memberId: 5, date: '2026-10-16',
+    checkInTime: '2026-10-16T23:50:00.000', checkOutTime: '2026-10-17T00:20:00.000',
+    status: AttendanceStatus.present,
+  );
+  final restored = Attendance.fromMap(attendance.toMap());
+  expect(restored.date, '2026-10-16');
+  expect(restored.checkOutTime, '2026-10-17T00:20:00.000');
+});
 
-  test('NotificationLog round-trips', () {
-    const log = NotificationLog(
-      id: 1,
-      memberId: 7,
-      occurredAt: '2026-09-18T18:30:00.000',
-      kind: NotificationKind.checkOut,
-      recipient: '010-0000-0000',
-    );
-    final restored = NotificationLog.fromMap(log.toMap());
-    expect(restored.memberId, 7);
-    expect(restored.kind, NotificationKind.checkOut);
-    expect(restored.recipient, '010-0000-0000');
-  });
+test('DeviceBinding 은 바인딩 시각을 포함해 왕복한다', () {
+  const binding = DeviceBinding(
+    id: 1, deviceToken: 'abc123', memberId: 7, boundAt: '2026-10-16T15:00:00.000',
+  );
+  final restored = DeviceBinding.fromMap(binding.toMap());
+  expect(restored.deviceToken, 'abc123');
+  expect(restored.boundAt, '2026-10-16T15:00:00.000');
+});
+
+test('NotificationLog 는 왕복한다', () {
+  const log = NotificationLog(
+    id: 1, memberId: 7, occurredAt: '2026-10-16T18:30:00.000',
+    kind: NotificationKind.checkOut, recipient: '010-0000-0000',
+  );
+  final restored = NotificationLog.fromMap(log.toMap());
+  expect(restored.kind, NotificationKind.checkOut);
+  expect(restored.recipient, '010-0000-0000');
+});
+
+test('BindingLog 는 왕복한다', () {
+  const log = BindingLog(
+    id: 1, deviceToken: 'abc123', memberId: 7, occurredAt: '2026-10-16T15:00:00.000',
+  );
+  final restored = BindingLog.fromMap(log.toMap());
+  expect(restored.deviceToken, 'abc123');
+  expect(restored.memberId, 7);
+});
 ```
 
-`test/db/database_helper_test.dart` 의 기대 테이블 목록에 `notification_logs` 를 추가하고,
-컬럼 확인 테스트를 덧붙인다:
+`test/db/database_helper_test.dart` 의 기대 테이블 목록에 `notification_logs`,
+`binding_logs`, `app_state` 를 더하고 컬럼 확인 테스트를 덧붙인다.
 
 ```dart
-  test('attendance and members carry the columns added for checkout/notification', () async {
-    final db = await openTestDatabase();
+test('체크아웃·알림·바인딩 이력에 필요한 컬럼이 있다', () async {
+  final db = await openTestDatabase();
+  Future<Set<Object?>> cols(String table) async =>
+      (await db.rawQuery('PRAGMA table_info($table)')).map((r) => r['name']).toSet();
 
-    final attendanceCols = (await db.rawQuery('PRAGMA table_info(attendance)'))
-        .map((r) => r['name'])
-        .toSet();
-    expect(attendanceCols, contains('check_out_time'));
+  expect(await cols('attendance'), contains('check_out_time'));
+  expect(await cols('members'), contains('parent_contact'));
+  expect(await cols('device_bindings'), contains('bound_at'));
+  await db.close();
+});
+```
 
-    final memberCols = (await db.rawQuery('PRAGMA table_info(members)'))
-        .map((r) => r['name'])
-        .toSet();
-    expect(memberCols, contains('parent_contact'));
+`test/repositories/device_binding_repository_test.dart` 에 두 개를 추가한다.
 
-    await db.close();
-  });
+```dart
+test('bind 는 바인딩 시각을 기록한다', () async {
+  final db = await openTestDatabase();
+  final repo = DeviceBindingRepository(db);
+  await repo.bind('device-1', 42, now: DateTime(2026, 10, 16, 15, 0));
+  final binding = await repo.getByToken('device-1');
+  expect(binding!.boundAt, DateTime(2026, 10, 16, 15, 0).toIso8601String());
+  await db.close();
+});
+
+test('재바인딩해도 이전 바인딩 이력이 남는다', () async {
+  final db = await openTestDatabase();
+  final repo = DeviceBindingRepository(db);
+  await repo.bind('device-1', 42, now: DateTime(2026, 10, 16, 15, 0));
+  await repo.bind('device-1', 99, now: DateTime(2026, 10, 16, 16, 0));
+
+  expect((await repo.getByToken('device-1'))!.memberId, 99);
+  final logs = await db.query('binding_logs', orderBy: 'occurred_at');
+  expect(logs.map((r) => r['member_id']).toList(), [42, 99]);
+  await db.close();
+});
 ```
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `flutter test test/models/models_test.dart test/db/database_helper_test.dart`
-Expected: FAIL — `checkOutTime`/`parentContact` 이름 없음, `notification_log.dart` 없음,
-`notification_logs` 테이블 없음.
+Run: `flutter test`
+Expected: FAIL — `checkOutTime`/`parentContact`/`boundAt` 이름 없음,
+`notification_log.dart`·`binding_log.dart` 없음, 새 테이블 없음.
 
 - [ ] **Step 3: 모델 보강**
 
-`lib/models/attendance.dart` 를 아래로 교체:
+`Attendance` 에 `String? checkOutTime` (map 키 `check_out_time`), `Member` 에
+`String? parentContact` (`parent_contact`), `DeviceBinding` 에 `String boundAt`
+(`bound_at`, 필수) 를 추가한다. `Member.copyWith` 도 `parentContact` 를 받는다.
 
-```dart
-enum AttendanceStatus { present, late, absent }
-
-class Attendance {
-  final int? id;
-  final int memberId;
-  final String date; // "YYYY-MM-DD"
-  final String? checkInTime; // ISO8601, 자동 결석 처리된 경우 null
-  final String? checkOutTime; // ISO8601, 아직 하원하지 않았으면 null
-  final AttendanceStatus status;
-
-  const Attendance({
-    this.id,
-    required this.memberId,
-    required this.date,
-    this.checkInTime,
-    this.checkOutTime,
-    required this.status,
-  });
-
-  Map<String, Object?> toMap() => {
-    if (id != null) 'id': id,
-    'member_id': memberId,
-    'date': date,
-    'check_in_time': checkInTime,
-    'check_out_time': checkOutTime,
-    'status': status.name,
-  };
-
-  factory Attendance.fromMap(Map<String, Object?> map) => Attendance(
-    id: map['id'] as int?,
-    memberId: map['member_id'] as int,
-    date: map['date'] as String,
-    checkInTime: map['check_in_time'] as String?,
-    checkOutTime: map['check_out_time'] as String?,
-    status: AttendanceStatus.values.byName(map['status'] as String),
-  );
-}
-```
-
-`lib/models/member.dart` 를 아래로 교체 (`copyWith` 는 `parentContact` 도 받는다):
-
-```dart
-class Member {
-  final int? id;
-  final String name;
-  final int? classId;
-  final String? parentContact;
-
-  const Member({this.id, required this.name, this.classId, this.parentContact});
-
-  Map<String, Object?> toMap() => {
-    if (id != null) 'id': id,
-    'name': name,
-    'class_id': classId,
-    'parent_contact': parentContact,
-  };
-
-  factory Member.fromMap(Map<String, Object?> map) => Member(
-    id: map['id'] as int?,
-    name: map['name'] as String,
-    classId: map['class_id'] as int?,
-    parentContact: map['parent_contact'] as String?,
-  );
-
-  Member copyWith({int? id, String? name, int? classId, String? parentContact}) =>
-      Member(
-        id: id ?? this.id,
-        name: name ?? this.name,
-        classId: classId ?? this.classId,
-        parentContact: parentContact ?? this.parentContact,
-      );
-}
-```
-
-`lib/models/notification_log.dart` 생성:
-
-```dart
-enum NotificationKind { checkIn, checkOut }
-
-class NotificationLog {
-  final int? id;
-  final int memberId;
-  final String occurredAt; // ISO8601
-  final NotificationKind kind;
-  final String? recipient; // 학부모 연락처. 등록되어 있지 않으면 null
-
-  const NotificationLog({
-    this.id,
-    required this.memberId,
-    required this.occurredAt,
-    required this.kind,
-    this.recipient,
-  });
-
-  Map<String, Object?> toMap() => {
-    if (id != null) 'id': id,
-    'member_id': memberId,
-    'occurred_at': occurredAt,
-    'kind': kind.name,
-    'recipient': recipient,
-  };
-
-  factory NotificationLog.fromMap(Map<String, Object?> map) => NotificationLog(
-    id: map['id'] as int?,
-    memberId: map['member_id'] as int,
-    occurredAt: map['occurred_at'] as String,
-    kind: NotificationKind.values.byName(map['kind'] as String),
-    recipient: map['recipient'] as String?,
-  );
-}
-```
+`lib/models/notification_log.dart` 와 `lib/models/binding_log.dart` 를 위의 Interfaces
+시그니처대로 만든다. map 키는 각각 `member_id`/`occurred_at`/`kind`/`recipient` 와
+`device_token`/`member_id`/`occurred_at`. `NotificationKind` 는 `kind.name` 으로 저장하고
+`NotificationKind.values.byName(...)` 으로 읽는다.
 
 - [ ] **Step 4: 스키마 보강**
 
-`lib/db/database_helper.dart` 의 `onCreate` 안에서 `members` 와 `attendance` 의
-CREATE TABLE 문에 컬럼을 추가하고, 테이블 하나를 새로 만든다. (마이그레이션 없이 직접
-수정하는 이유: 아직 어디에도 실제 데이터가 없다.)
-
-`members` 테이블:
+`lib/db/database_helper.dart` 의 `onCreate` 에서 `members` 에 `parent_contact TEXT`,
+`attendance` 에 `check_out_time TEXT`, `device_bindings` 에 `bound_at TEXT NOT NULL` 을
+추가하고 테이블 3개를 새로 만든다.
 
 ```sql
-          CREATE TABLE members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            class_id INTEGER,
-            parent_contact TEXT,
-            FOREIGN KEY (class_id) REFERENCES classes (id)
-          )
+CREATE TABLE notification_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  member_id INTEGER NOT NULL,
+  occurred_at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  recipient TEXT,
+  FOREIGN KEY (member_id) REFERENCES members (id)
+)
+
+CREATE TABLE binding_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_token TEXT NOT NULL,
+  member_id INTEGER NOT NULL,
+  occurred_at TEXT NOT NULL,
+  FOREIGN KEY (member_id) REFERENCES members (id)
+)
+
+CREATE TABLE app_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)
 ```
 
-`attendance` 테이블:
+`binding_logs.device_token` 에는 UNIQUE 를 걸지 않는다 — 같은 기기가 여러 번 묶인 이력이
+모두 남아야 사칭 흔적이 보존된다.
 
-```sql
-          CREATE TABLE attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            member_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            check_in_time TEXT,
-            check_out_time TEXT,
-            status TEXT NOT NULL,
-            UNIQUE(member_id, date),
-            FOREIGN KEY (member_id) REFERENCES members (id)
-          )
-```
+`app_state` 는 이번 범위에서 아무도 읽지 않는다. 이를 다루는 저장소는 자동 결석 처리
+따라잡기를 구현하는 Task 18 에서 추가한다.
 
-그리고 `attendance` 생성 뒤에 아래를 추가:
+- [ ] **Step 5: `bind` 가 시각을 찍고 이력을 남기게 고치기**
 
-```dart
-        await db.execute('''
-          CREATE TABLE notification_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            member_id INTEGER NOT NULL,
-            occurred_at TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            recipient TEXT,
-            FOREIGN KEY (member_id) REFERENCES members (id)
-          )
-        ''');
-```
+`DeviceBindingRepository.bind(String deviceToken, int memberId, {DateTime? now})` 로
+시그니처를 바꾼다. `now` 가 null 이면 `DateTime.now()`. 같은 호출 안에서 두 가지를 한다.
 
-- [ ] **Step 5: 통과 확인**
+- `device_bindings` 를 기존처럼 `ConflictAlgorithm.replace` 로 갱신하면서 `bound_at` 에
+  `now.toIso8601String()` 을 넣는다
+- `binding_logs` 에 `BindingLog(deviceToken: ..., memberId: ..., occurredAt: ...).toMap()` 을
+  `insert` 한다 (덮어쓰지 않고 쌓인다)
+
+- [ ] **Step 6: 통과 확인**
 
 Run: `flutter test`
-Expected: PASS — 기존 테스트가 새 필드로도 전부 통과해야 한다. Task 3·4 의 저장소 테스트는
-`toMap`/`fromMap` 을 거치므로 코드 수정 없이 통과한다.
+Expected: PASS — Task 3·4 의 저장소 테스트는 `toMap`/`fromMap` 을 거치므로 수정 없이 통과한다.
 
-- [ ] **Step 6: 커밋**
+- [ ] **Step 7: 커밋**
 
 ```bash
-git add lib/models lib/db test/models test/db
-git commit -m "feat: 하원 시각·학부모 연락처·알림 로그 스키마 추가"
+git add lib/models lib/db lib/repositories/device_binding_repository.dart test
+git commit -m "feat: 하원 시각·학부모 연락처·알림 로그·바인딩 이력 스키마 추가"
 ```
 
 ---
 
-## Task 6: Attendance repository
+## Task 6: AttendanceRepository (등원·하원·보정·미하원 조회)
+
+> 2026-10-16 개정 반영. 개정 전 본문은 등원만 다루었다. 하원 기록과 "열린 세션" 조회가
+> 이번 태스크의 핵심이며, **세션은 등원한 날짜의 행에 귀속된다**는 규칙이 여기서 구현된다.
 
 **Files:**
 - Create: `lib/repositories/attendance_repository.dart`
 - Test: `test/repositories/attendance_repository_test.dart`
 
 **Interfaces:**
-- Consumes: `Attendance`, `AttendanceStatus` (Task 1), `openTestDatabase()` (Task 2).
-- Produces: `AttendanceRepository(Database db)` with `getByMemberAndDate(int memberId, String date) -> Future<Attendance?>`, `insert(Attendance) -> Future<int>` (ignores insert on conflict — the `UNIQUE(member_id, date)` constraint makes this idempotent), `getByDate(String date) -> Future<List<Attendance>>`, `getHistoryForMember(int memberId) -> Future<List<Attendance>>` (newest first).
+- Consumes: `Attendance`, `AttendanceStatus` (Task 1·5), `openTestDatabase()` (Task 2).
+- Produces: `AttendanceRepository(Database db)` 에
+  - `Future<int> insert(Attendance)` — `ConflictAlgorithm.ignore`.
+    `UNIQUE(member_id, date)` 덕분에 하루 한 행이 보장되고 첫 쓰기가 이긴다
+  - `Future<void> update(Attendance)` — `id` 로 갱신. 하원 기록과 관리자 보정이 모두 이 경로
+  - `Future<Attendance?> getByMemberAndDate(int memberId, String date)`
+  - `Future<List<Attendance>> getByDate(String date)`
+  - `Future<List<Attendance>> getHistoryForMember(int memberId)` — 최신 날짜 먼저
+  - `Future<Attendance?> findOpenSession(int memberId, {required DateTime now, Duration window = const Duration(hours: 12)})`
+    — 하원 시각이 비어 있고 등원 시각이 `now - window` 이후인 기록 중 **등원 시각이 가장
+    최근인 것** 하나. 없으면 null
+  - `Future<List<Attendance>> findUnclosedSessions({required DateTime now, Duration window = const Duration(hours: 12)})`
+    — 등원 시각이 있고 하원 시각이 비어 있으며 등원으로부터 `window` 가 지난 기록 (= 관리자가
+    보정해야 할 "미하원" 목록)
 
-- [ ] **Step 1: Write the failing test**
+`check_in_time` 은 ISO8601 문자열이고 ISO8601 은 사전순 정렬이 시간순과 일치하므로,
+두 조회 모두 경계 시각을 `toIso8601String()` 으로 만들어 SQL 비교에 그대로 쓴다.
+`findOpenSession` 은 `ORDER BY check_in_time DESC LIMIT 1`.
 
-Create `test/repositories/attendance_repository_test.dart`:
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/models/attendance.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import '../helpers/test_db.dart';
-
-void main() {
-  test('insert then getByMemberAndDate returns the record', () async {
-    final db = await openTestDatabase();
-    final repo = AttendanceRepository(db);
-
-    await repo.insert(const Attendance(
-      memberId: 1,
-      date: '2026-09-18',
-      checkInTime: '2026-09-18T15:05:00.000',
-      status: AttendanceStatus.present,
-    ));
-
-    final found = await repo.getByMemberAndDate(1, '2026-09-18');
-    expect(found?.status, AttendanceStatus.present);
-    expect(await repo.getByMemberAndDate(1, '2026-09-19'), isNull);
-    await db.close();
-  });
-
-  test('insert is a no-op if a record already exists for member+date', () async {
-    final db = await openTestDatabase();
-    final repo = AttendanceRepository(db);
-
-    await repo.insert(const Attendance(
-      memberId: 1,
-      date: '2026-09-18',
-      checkInTime: '2026-09-18T15:05:00.000',
-      status: AttendanceStatus.present,
-    ));
-    await repo.insert(const Attendance(
-      memberId: 1,
-      date: '2026-09-18',
-      checkInTime: '2026-09-18T18:00:00.000',
-      status: AttendanceStatus.late,
-    ));
-
-    final found = await repo.getByMemberAndDate(1, '2026-09-18');
-    expect(found?.status, AttendanceStatus.present); // first write wins
-    await db.close();
-  });
-
-  test('getByDate returns all records for that date across members', () async {
-    final db = await openTestDatabase();
-    final repo = AttendanceRepository(db);
-    await repo.insert(const Attendance(
-        memberId: 1, date: '2026-09-18', checkInTime: null, status: AttendanceStatus.present));
-    await repo.insert(const Attendance(
-        memberId: 2, date: '2026-09-18', checkInTime: null, status: AttendanceStatus.absent));
-    await repo.insert(const Attendance(
-        memberId: 1, date: '2026-09-19', checkInTime: null, status: AttendanceStatus.present));
-
-    final records = await repo.getByDate('2026-09-18');
-    expect(records.map((a) => a.memberId).toSet(), {1, 2});
-    await db.close();
-  });
-
-  test('getHistoryForMember returns newest first', () async {
-    final db = await openTestDatabase();
-    final repo = AttendanceRepository(db);
-    await repo.insert(const Attendance(
-        memberId: 1, date: '2026-09-01', checkInTime: null, status: AttendanceStatus.present));
-    await repo.insert(const Attendance(
-        memberId: 1, date: '2026-09-18', checkInTime: null, status: AttendanceStatus.late));
-
-    final history = await repo.getHistoryForMember(1);
-    expect(history.first.date, '2026-09-18');
-    expect(history.last.date, '2026-09-01');
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/repositories/attendance_repository_test.dart`
-Expected: FAIL — `lib/repositories/attendance_repository.dart` doesn't exist yet.
-
-- [ ] **Step 3: Implement the repository**
-
-Create `lib/repositories/attendance_repository.dart`:
+`test/repositories/attendance_repository_test.dart` 생성. 테스트 이름과 단정:
 
 ```dart
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:checkin_app/models/attendance.dart';
+test('insert 후 getByMemberAndDate 로 찾을 수 있다', () async { /* status present, 다른 날짜는 null */ });
 
-class AttendanceRepository {
-  final Database db;
-  AttendanceRepository(this.db);
+test('같은 회원·날짜로 두 번 insert 하면 첫 기록이 유지된다', () async { /* 두 번째 status late 를 넣어도 present */ });
 
-  Future<Attendance?> getByMemberAndDate(int memberId, String date) async {
-    final rows = await db.query(
-      'attendance',
-      where: 'member_id = ? AND date = ?',
-      whereArgs: [memberId, date],
-    );
-    if (rows.isEmpty) return null;
-    return Attendance.fromMap(rows.first);
-  }
+test('getByDate 는 그 날짜의 모든 회원 기록을 돌려준다', () async { /* memberId {1,2} */ });
 
-  Future<int> insert(Attendance attendance) => db.insert(
-        'attendance',
-        attendance.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+test('getHistoryForMember 는 최신 날짜를 먼저 돌려준다', () async { /* first.date '2026-10-16', last.date '2026-10-01' */ });
 
-  Future<List<Attendance>> getByDate(String date) async {
-    final rows = await db.query('attendance', where: 'date = ?', whereArgs: [date]);
-    return rows.map(Attendance.fromMap).toList();
-  }
+test('findOpenSession 은 12시간 이내의 열린 세션을 찾는다', () async {
+  final repo = AttendanceRepository(db);
+  await repo.insert(const Attendance(
+    memberId: 1, date: '2026-10-16',
+    checkInTime: '2026-10-16T15:00:00.000', checkOutTime: null,
+    status: AttendanceStatus.present,
+  ));
+  final open = await repo.findOpenSession(1, now: DateTime(2026, 10, 16, 18, 0));
+  expect(open!.date, '2026-10-16');
+});
 
-  Future<List<Attendance>> getHistoryForMember(int memberId) async {
-    final rows = await db.query(
-      'attendance',
-      where: 'member_id = ?',
-      whereArgs: [memberId],
-      orderBy: 'date DESC',
-    );
-    return rows.map(Attendance.fromMap).toList();
-  }
-}
+test('findOpenSession 은 12시간이 지난 세션을 찾지 않는다', () async {
+  // 등원 09:00, 조회 22:00 (13시간 뒤) -> null
+});
+
+test('findOpenSession 은 이미 하원한 기록을 찾지 않는다', () async {
+  // check_out_time 이 채워진 행만 있으면 null
+});
+
+test('findOpenSession 은 열린 세션이 둘이면 등원이 가장 최근인 것을 돌려준다', () async {
+  // 2026-10-16T23:50 (열림) 과 2026-10-17T08:00 (열림) -> date '2026-10-17'
+});
+
+test('update 는 하원 시각을 채운다', () async {
+  // insert 후 getByMemberAndDate 로 id 를 얻고, checkOutTime 을 넣어 update -> 다시 읽어 확인
+});
+
+test('findUnclosedSessions 는 12시간이 지난 미하원 기록만 돌려준다', () async {
+  // 09:00 등원(열림) + 21:00 등원(열림) 을 다른 날짜로 넣고 09:00+13시간 시점에 조회
+  // -> 오래된 것 하나만
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: 실패 확인**
 
 Run: `flutter test test/repositories/attendance_repository_test.dart`
-Expected: PASS (4 tests)
+Expected: FAIL — `lib/repositories/attendance_repository.dart` 가 없다.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: 저장소 구현**
+
+위 Interfaces 의 시그니처대로 `lib/repositories/attendance_repository.dart` 를 만든다.
+Task 3·4 의 저장소와 같은 모양(생성자로 `Database` 를 받고 `toMap`/`fromMap` 으로만 왕복)을
+따른다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `flutter test test/repositories/attendance_repository_test.dart`
+Expected: PASS (10 tests)
+
+- [ ] **Step 5: 커밋**
 
 ```bash
 git add lib/repositories/attendance_repository.dart test/repositories/attendance_repository_test.dart
-git commit -m "feat: add attendance repository"
+git commit -m "feat: 하원과 열린 세션 조회를 포함한 출결 저장소 추가"
 ```
 
 ---
 
-## Task 7: AttendanceService (status determination, check-in, auto-absence)
+## Task 7: AttendanceService (등원·하원 기록, 상태 판정, 자동 결석)
+
+> 2026-10-16 개정 반영. 등원/하원을 **추론하지 않는다** — 어느 QR 을 스캔했는지가 호출하는
+> 메서드를 결정하므로, 서비스는 `recordCheckIn` 과 `recordCheckOut` 을 따로 제공한다.
+>
+> **이 서비스는 학부모 알림을 발생시키지 않는다.** 알림은 학생이 QR 을 스캔하는 경로에서만
+> 나가야 하고(스펙), 관리자 보정은 저장소를 직접 쓴다. 따라서 알림 호출은 결과를 보고
+> 판단할 수 있는 서버 엔드포인트(Task 11)가 담당한다. 그래서 두 메서드는 "새로 기록했는지"를
+> 호출자가 알 수 있는 결과 객체를 돌려준다.
 
 **Files:**
 - Create: `lib/services/attendance_service.dart`
 - Test: `test/services/attendance_service_test.dart`
 
 **Interfaces:**
-- Consumes: `MemberRepository`, `ClassRepository`, `AttendanceRepository` (Tasks 3-5).
-- Produces: `AttendanceService({required memberRepository, required classRepository, required attendanceRepository, Duration gracePeriod = Duration(minutes: 10)})` with `static formatDate(DateTime) -> String` ("YYYY-MM-DD"), `determineStatus(DateTime classStart, DateTime checkInTime) -> AttendanceStatus`, `recordCheckIn(int memberId, {DateTime? now}) -> Future<Attendance>` (idempotent per day), `markAbsentees(DateTime date) -> Future<int>` (returns count marked, only for classes operating that weekday).
+- Consumes: `MemberRepository` (Task 3), `ClassRepository` (Task 4),
+  `AttendanceRepository` (Task 6).
+- Produces:
+  - `enum CheckInStatus { recorded, alreadyCheckedIn }`
+  - `enum CheckOutStatus { recorded, noOpenSession, alreadyCheckedOut }`
+  - `class CheckInOutcome { final CheckInStatus status; final Attendance attendance; }`
+  - `class CheckOutOutcome { final CheckOutStatus status; final Attendance? attendance; }`
+  - `AttendanceService({required MemberRepository memberRepository,
+    required ClassRepository classRepository,
+    required AttendanceRepository attendanceRepository,
+    Duration gracePeriod = const Duration(minutes: 10),
+    Duration checkOutWindow = const Duration(hours: 12)})` 에
+    - `static String formatDate(DateTime) -> String` ("YYYY-MM-DD")
+    - `AttendanceStatus determineStatus(DateTime classStart, DateTime checkInTime)`
+    - `Future<CheckInOutcome> recordCheckIn(int memberId, {DateTime? now})`
+    - `Future<CheckOutOutcome> recordCheckOut(int memberId, {DateTime? now})`
+    - `Future<int> markAbsentees(DateTime date)` — 처리한 건수
 
-- [ ] **Step 1: Write the failing test**
+`recordCheckOut` 의 분기 규칙:
+`findOpenSession` 이 세션을 찾으면 그 행의 하원 시각을 채우고 `recorded`.
+못 찾았을 때, 오늘 날짜 행이 있고 그 행의 하원 시각이 채워져 있으면 `alreadyCheckedOut`,
+그 밖에는 모두 `noOpenSession`.
 
-Create `test/services/attendance_service_test.dart`:
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/models/attendance.dart';
-import 'package:checkin_app/models/class_model.dart';
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import '../helpers/test_db.dart';
-
-void main() {
-  test('determineStatus is present exactly at the grace boundary, late after it', () async {
-    final db = await openTestDatabase();
-    final service = AttendanceService(
-      memberRepository: MemberRepository(db),
-      classRepository: ClassRepository(db),
-      attendanceRepository: AttendanceRepository(db),
-    );
-    final classStart = DateTime(2026, 9, 18, 15, 0);
-
-    expect(
-      service.determineStatus(classStart, DateTime(2026, 9, 18, 15, 5)),
-      AttendanceStatus.present,
-    );
-    expect(
-      service.determineStatus(classStart, classStart.add(const Duration(minutes: 10))),
-      AttendanceStatus.present, // exactly at the boundary still counts as present
-    );
-    expect(
-      service.determineStatus(classStart, classStart.add(const Duration(minutes: 10, seconds: 1))),
-      AttendanceStatus.late,
-    );
-    await db.close();
-  });
-
-  test('recordCheckIn marks present/late based on the member\'s class, and is idempotent', () async {
-    final db = await openTestDatabase();
-    final classRepo = ClassRepository(db);
-    final memberRepo = MemberRepository(db);
-    final attendanceRepo = AttendanceRepository(db);
-    final service = AttendanceService(
-      memberRepository: memberRepo,
-      classRepository: classRepo,
-      attendanceRepository: attendanceRepo,
-    );
-
-    final classId = await classRepo.insert(
-      ClassModel(name: '국어반', startTime: '15:00', operatingDays: {5}), // Friday
-    );
-    final memberId = await memberRepo.insert(Member(name: '홍길동', classId: classId));
-
-    final onTime = DateTime(2026, 9, 18, 15, 3); // Friday
-    final result = await service.recordCheckIn(memberId, now: onTime);
-    expect(result.status, AttendanceStatus.present);
-
-    // Second check-in the same day must not change the recorded status.
-    final laterSameDay = DateTime(2026, 9, 18, 20, 0);
-    final second = await service.recordCheckIn(memberId, now: laterSameDay);
-    expect(second.status, AttendanceStatus.present);
-    await db.close();
-  });
-
-  test('recordCheckIn marks present for a member with no class', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final service = AttendanceService(
-      memberRepository: memberRepo,
-      classRepository: ClassRepository(db),
-      attendanceRepository: AttendanceRepository(db),
-    );
-    final memberId = await memberRepo.insert(const Member(name: '무소속', classId: null));
-
-    final result = await service.recordCheckIn(memberId, now: DateTime(2026, 9, 18, 23, 0));
-    expect(result.status, AttendanceStatus.present);
-    await db.close();
-  });
-
-  test('markAbsentees only marks members of classes operating that weekday, skipping those already checked in', () async {
-    final db = await openTestDatabase();
-    final classRepo = ClassRepository(db);
-    final memberRepo = MemberRepository(db);
-    final attendanceRepo = AttendanceRepository(db);
-    final service = AttendanceService(
-      memberRepository: memberRepo,
-      classRepository: classRepo,
-      attendanceRepository: attendanceRepo,
-    );
-
-    final fridayClassId = await classRepo.insert(
-      ClassModel(name: '금요반', startTime: '15:00', operatingDays: {5}),
-    );
-    final mondayClassId = await classRepo.insert(
-      ClassModel(name: '월요반', startTime: '15:00', operatingDays: {1}),
-    );
-    final absentMemberId = await memberRepo.insert(Member(name: '결석자', classId: fridayClassId));
-    final presentMemberId = await memberRepo.insert(Member(name: '출석자', classId: fridayClassId));
-    final mondayMemberId = await memberRepo.insert(Member(name: '월요일회원', classId: mondayClassId));
-
-    final friday = DateTime(2026, 9, 18); // Friday
-    await service.recordCheckIn(presentMemberId, now: DateTime(2026, 9, 18, 15, 1));
-
-    final markedCount = await service.markAbsentees(friday);
-    expect(markedCount, 1); // only absentMemberId
-
-    final absentRecord =
-        await attendanceRepo.getByMemberAndDate(absentMemberId, AttendanceService.formatDate(friday));
-    expect(absentRecord?.status, AttendanceStatus.absent);
-
-    // The Monday-class member must not be touched on a Friday run.
-    final mondayMemberRecords = await attendanceRepo.getHistoryForMember(mondayMemberId);
-    expect(mondayMemberRecords, isEmpty);
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/services/attendance_service_test.dart`
-Expected: FAIL — `lib/services/attendance_service.dart` doesn't exist yet.
-
-- [ ] **Step 3: Implement the service**
-
-Create `lib/services/attendance_service.dart`:
+`test/services/attendance_service_test.dart` 생성. 테스트 이름과 단정:
 
 ```dart
-import 'package:checkin_app/models/attendance.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
+test('determineStatus 는 유예 경계까지 출석, 그 뒤는 지각', () {
+  // classStart 15:00, gracePeriod 10분
+  // 15:05 -> present, 15:10 정확히 -> present, 15:10:01 -> late
+});
 
-class AttendanceService {
-  final MemberRepository memberRepository;
-  final ClassRepository classRepository;
-  final AttendanceRepository attendanceRepository;
-  final Duration gracePeriod;
+test('recordCheckIn 은 반 시작 시각 기준으로 출석/지각을 정하고 recorded 를 돌려준다', () async {
+  // 금요반 15:00, 금요일 15:03 등원 -> status recorded, attendance.status present
+});
 
-  AttendanceService({
-    required this.memberRepository,
-    required this.classRepository,
-    required this.attendanceRepository,
-    this.gracePeriod = const Duration(minutes: 10),
-  });
+test('같은 날 두 번째 등원 스캔은 alreadyCheckedIn 이고 기록을 바꾸지 않는다', () async {
+  // 15:03 등원 후 20:00 재스캔 -> CheckInStatus.alreadyCheckedIn, attendance.status 는 present 유지
+});
 
-  static String formatDate(DateTime date) =>
-      '${date.year.toString().padLeft(4, '0')}-'
-      '${date.month.toString().padLeft(2, '0')}-'
-      '${date.day.toString().padLeft(2, '0')}';
+test('반이 없는 회원의 등원은 출석으로 기록된다', () async {
+  // 23:00 에 등원해도 present
+});
 
-  AttendanceStatus determineStatus(DateTime classStart, DateTime checkInTime) {
-    return checkInTime.isAfter(classStart.add(gracePeriod))
-        ? AttendanceStatus.late
-        : AttendanceStatus.present;
-  }
+test('recordCheckOut 은 열린 세션의 하원 시각을 채운다', () async {
+  // 15:00 등원 -> 18:30 하원 -> recorded, checkOutTime 이 18:30
+});
 
-  Future<Attendance> recordCheckIn(int memberId, {DateTime? now}) async {
-    final checkInTime = now ?? DateTime.now();
-    final dateKey = formatDate(checkInTime);
+test('자정을 넘겨 하원해도 등원한 날짜의 행에 기록된다', () async {
+  final service = /* ... */;
+  await service.recordCheckIn(memberId, now: DateTime(2026, 10, 16, 23, 50));
+  final outcome = await service.recordCheckOut(memberId, now: DateTime(2026, 10, 17, 0, 20));
+  expect(outcome.status, CheckOutStatus.recorded);
+  expect(outcome.attendance!.date, '2026-10-16');
+  expect(outcome.attendance!.checkOutTime, DateTime(2026, 10, 17, 0, 20).toIso8601String());
+});
 
-    final existing = await attendanceRepository.getByMemberAndDate(memberId, dateKey);
-    if (existing != null) return existing;
+test('열린 세션이 둘이면 가장 최근 등원을 닫고 과거 세션은 그대로 둔다', () async {
+  await service.recordCheckIn(memberId, now: DateTime(2026, 10, 16, 23, 50));
+  await service.recordCheckIn(memberId, now: DateTime(2026, 10, 17, 8, 0));
+  final outcome = await service.recordCheckOut(memberId, now: DateTime(2026, 10, 17, 10, 0));
+  expect(outcome.attendance!.date, '2026-10-17');
+  final yesterday = await attendanceRepo.getByMemberAndDate(memberId, '2026-10-16');
+  expect(yesterday!.checkOutTime, isNull);
+});
 
-    final member = await memberRepository.getById(memberId);
-    if (member == null) {
-      throw ArgumentError('Unknown member id: $memberId');
-    }
+test('등원으로부터 12시간이 지나면 하원으로 닫히지 않는다', () async {
+  // 09:00 등원 -> 22:00 하원 시도 -> noOpenSession
+});
 
-    var status = AttendanceStatus.present;
-    if (member.classId != null) {
-      final classModel = await classRepository.getById(member.classId!);
-      if (classModel != null) {
-        status = determineStatus(classModel.startDateTimeFor(checkInTime), checkInTime);
-      }
-    }
+test('등원 기록이 없으면 하원은 noOpenSession 이다', () async {
+  // 등원 없이 recordCheckOut -> noOpenSession, attendance 는 null
+});
 
-    final attendance = Attendance(
-      memberId: memberId,
-      date: dateKey,
-      checkInTime: checkInTime.toIso8601String(),
-      status: status,
-    );
-    final id = await attendanceRepository.insert(attendance);
-    return Attendance(
-      id: id,
-      memberId: memberId,
-      date: dateKey,
-      checkInTime: attendance.checkInTime,
-      status: status,
-    );
-  }
+test('이미 하원한 뒤 다시 하원 스캔하면 alreadyCheckedOut 이다', () async {
+  // 15:00 등원, 18:00 하원, 18:05 재스캔 -> alreadyCheckedOut
+});
 
-  Future<int> markAbsentees(DateTime date) async {
-    final dateKey = formatDate(date);
-    final classes = await classRepository.getAll();
-    var markedCount = 0;
-    for (final classModel in classes) {
-      if (classModel.id == null || !classModel.operatesOn(date)) continue;
-      final members = await memberRepository.getByClassId(classModel.id!);
-      for (final member in members) {
-        if (member.id == null) continue;
-        final existing = await attendanceRepository.getByMemberAndDate(member.id!, dateKey);
-        if (existing != null) continue;
-        await attendanceRepository.insert(Attendance(
-          memberId: member.id!,
-          date: dateKey,
-          checkInTime: null,
-          status: AttendanceStatus.absent,
-        ));
-        markedCount++;
-      }
-    }
-    return markedCount;
-  }
-}
+test('markAbsentees 는 운영 요일의 미체크 회원만 결석 처리한다', () async {
+  // 금요반/월요반, 금요일에 실행 -> 금요반 미체크 1명만 처리(반환값 1),
+  // 이미 등원한 회원과 월요반 회원은 건드리지 않는다
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: 실패 확인**
 
 Run: `flutter test test/services/attendance_service_test.dart`
-Expected: PASS (4 tests)
+Expected: FAIL — `lib/services/attendance_service.dart` 가 없다.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: 서비스 구현**
+
+위 Interfaces 의 시그니처와 `recordCheckOut` 분기 규칙대로 구현한다.
+`recordCheckIn` 은 기존 기록이 있으면 그것을 담아 `alreadyCheckedIn` 으로 돌려주고,
+없으면 회원의 반을 찾아 `determineStatus` 로 상태를 정해 insert 한다. 반이 없거나 반을
+찾지 못하면 `AttendanceStatus.present`. 존재하지 않는 회원 id 는 `ArgumentError`.
+`markAbsentees` 는 `classRepository.getAll()` 을 돌며 `operatesOn(date)` 인 반의 회원 중
+그날 기록이 없는 사람에게 `AttendanceStatus.absent` 행을 넣는다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `flutter test test/services/attendance_service_test.dart`
+Expected: PASS (11 tests)
+
+- [ ] **Step 5: 커밋**
 
 ```bash
 git add lib/services/attendance_service.dart test/services/attendance_service_test.dart
-git commit -m "feat: add attendance service with status rules and auto-absence"
+git commit -m "feat: 등원·하원 기록과 상태 판정을 담은 출결 서비스 추가"
 ```
 
 ---
 
-## Task 8: QrTokenService (rotating check-in token)
+## Task 8: QrTokenService (등원·하원 2종 회전 토큰) + VerificationSessionService
+
+> 2026-10-16 개정으로 **개정 대상이 되었다** (이전 계획서는 "개정 불필요"로 표시했다).
+> 토큰이 2종으로 늘고, 확인 세션이 새로 들어온다.
+>
+> 두 QR 은 **서로 독립된 토큰 값**을 갖는다. 하나의 토큰에 종류를 파라미터로 붙이면 학생이
+> 등원 QR 로 받은 값의 파라미터만 바꿔 하원을 위조할 수 있다 (스펙).
+>
+> 확인 세션이 필요한 이유: QR 토큰은 30초마다 갱신되는데 최초 1회 절차(이름 찾기 + 연락처
+> 뒷 4자리 입력)는 그보다 오래 걸려, 토큰만으로 검증하면 **반드시** 실패한다. 페이지가 열릴
+> 때 토큰을 검증해 5분짜리 세션을 발급하고, 이후 요청은 세션으로 처리한다. 세션은 유효한
+> QR 을 스캔해야만 발급되므로 "카운터에 직접 와야 한다"는 보증은 유지된다.
 
 **Files:**
 - Create: `lib/services/qr_token_service.dart`
+- Create: `lib/services/verification_session_service.dart`
 - Test: `test/services/qr_token_service_test.dart`
+- Test: `test/services/verification_session_service_test.dart`
 
 **Interfaces:**
-- Consumes: nothing (pure Dart, no DB).
-- Produces: `QrTokenService({Duration validityDuration = Duration(seconds: 30), Duration graceDuration = Duration(seconds: 10)})` with `String rotate()`, `String get currentToken`, `bool isValid(String token, {DateTime? now})`.
+- Consumes: 없음 (순수 Dart, DB 접근 없음).
+- Produces:
+  - `enum QrKind { checkIn, checkOut }` — `lib/services/qr_token_service.dart` 에 둔다
+  - `QrTokenService({Duration validityDuration = const Duration(seconds: 30),
+    Duration graceDuration = const Duration(seconds: 10)})` 에
+    - `String get checkInToken`
+    - `String get checkOutToken`
+    - `void rotate({DateTime? now})` — 두 토큰을 동시에 교체하고 직전 값을 유예 대상으로 남긴다
+    - `QrKind? kindOf(String token, {DateTime? now})` — 유효하면 종류, 아니면 null
+  - `VerificationSessionService({Duration ttl = const Duration(minutes: 5)})` 에
+    - `String issue(QrKind kind, {DateTime? now})` — 세션 id 를 돌려준다
+    - `QrKind? kindOf(String sessionId, {DateTime? now})` — 유효하면 종류, 아니면 null
+    - `void consume(String sessionId)` — 사용 완료 처리. 이후 `kindOf` 는 null
 
-- [ ] **Step 1: Write the failing test**
+토큰과 세션 id 는 `Random.secure()` 로 만든 16자 hex 를 쓴다 (Task 1~4 가 쓴 방식과 동일).
 
-Create `test/services/qr_token_service_test.dart`:
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-
-void main() {
-  test('currentToken is non-empty and valid', () {
-    final service = QrTokenService();
-    expect(service.currentToken, isNotEmpty);
-    expect(service.isValid(service.currentToken), isTrue);
-  });
-
-  test('rotate() produces a different token, and the old one is invalid outright as "current"', () {
-    final service = QrTokenService();
-    final first = service.currentToken;
-    final second = service.rotate();
-    expect(second, isNot(first));
-    expect(service.isValid(second), isTrue);
-  });
-
-  test('the previous token stays valid within the grace window after rotation', () {
-    final service = QrTokenService(graceDuration: const Duration(seconds: 10));
-    final first = service.currentToken;
-    final rotatedAt = DateTime(2026, 9, 18, 12, 0, 0);
-    service.rotate();
-
-    expect(
-      service.isValid(first, now: rotatedAt.add(const Duration(seconds: 5))),
-      isTrue,
-    );
-  });
-
-  test('the previous token is rejected once the grace window elapses', () {
-    final service = QrTokenService(graceDuration: const Duration(seconds: 10));
-    final first = service.currentToken;
-    final rotatedAt = DateTime(2026, 9, 18, 12, 0, 0);
-    service.rotate();
-
-    expect(
-      service.isValid(first, now: rotatedAt.add(const Duration(seconds: 11))),
-      isFalse,
-    );
-  });
-
-  test('an unrelated token is always invalid', () {
-    final service = QrTokenService();
-    expect(service.isValid('not-a-real-token'), isFalse);
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/services/qr_token_service_test.dart`
-Expected: FAIL — `lib/services/qr_token_service.dart` doesn't exist yet.
-
-- [ ] **Step 3: Implement the service**
-
-Create `lib/services/qr_token_service.dart`:
+`test/services/qr_token_service_test.dart`:
 
 ```dart
-import 'dart:math';
+test('등원 토큰과 하원 토큰은 서로 다르다', () {
+  final service = QrTokenService();
+  expect(service.checkInToken, isNotEmpty);
+  expect(service.checkOutToken, isNot(service.checkInToken));
+});
 
-class QrTokenService {
-  final Duration validityDuration;
-  final Duration graceDuration;
+test('kindOf 는 각 토큰의 종류를 돌려준다', () {
+  final service = QrTokenService();
+  expect(service.kindOf(service.checkInToken), QrKind.checkIn);
+  expect(service.kindOf(service.checkOutToken), QrKind.checkOut);
+});
 
-  String? _currentToken;
-  String? _previousToken;
-  DateTime? _rotatedAt;
-  final Random _random = Random.secure();
+test('rotate 는 두 토큰을 모두 교체한다', () {
+  // rotate 전후의 checkInToken·checkOutToken 이 모두 달라지고, 새 값은 유효하다
+});
 
-  QrTokenService({
-    this.validityDuration = const Duration(seconds: 30),
-    this.graceDuration = const Duration(seconds: 10),
-  });
+test('직전 토큰은 유예 창 안에서 종류를 유지한 채 유효하다', () {
+  final service = QrTokenService(graceDuration: const Duration(seconds: 10));
+  final firstCheckIn = service.checkInToken;
+  final rotatedAt = DateTime(2026, 10, 16, 12, 0, 0);
+  service.rotate(now: rotatedAt);
+  expect(
+    service.kindOf(firstCheckIn, now: rotatedAt.add(const Duration(seconds: 5))),
+    QrKind.checkIn,
+  );
+});
 
-  String get currentToken {
-    _currentToken ??= _generateToken();
-    return _currentToken!;
-  }
+test('유예 창이 지나면 직전 토큰은 거부된다', () {
+  // rotate 후 11초 뒤 kindOf -> null
+});
 
-  String rotate() {
-    _previousToken = _currentToken;
-    _currentToken = _generateToken();
-    _rotatedAt = DateTime.now();
-    return _currentToken!;
-  }
-
-  bool isValid(String token, {DateTime? now}) {
-    if (token == currentToken) return true;
-    if (token == _previousToken && _rotatedAt != null) {
-      final checkTime = now ?? DateTime.now();
-      return checkTime.isBefore(_rotatedAt!.add(graceDuration));
-    }
-    return false;
-  }
-
-  String _generateToken() =>
-      List.generate(16, (_) => _random.nextInt(16).toRadixString(16)).join();
-}
+test('모르는 토큰은 null 이다', () {
+  expect(QrTokenService().kindOf('not-a-real-token'), isNull);
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+`test/services/verification_session_service_test.dart`:
 
-Run: `flutter test test/services/qr_token_service_test.dart`
-Expected: PASS (5 tests)
+```dart
+test('발급한 세션은 종류를 돌려준다', () {
+  final service = VerificationSessionService();
+  final id = service.issue(QrKind.checkOut);
+  expect(service.kindOf(id), QrKind.checkOut);
+});
 
-- [ ] **Step 5: Commit**
+test('ttl 이 지난 세션은 거부된다', () {
+  final service = VerificationSessionService(ttl: const Duration(minutes: 5));
+  final issuedAt = DateTime(2026, 10, 16, 12, 0, 0);
+  final id = service.issue(QrKind.checkIn, now: issuedAt);
+  expect(service.kindOf(id, now: issuedAt.add(const Duration(minutes: 4))), QrKind.checkIn);
+  expect(service.kindOf(id, now: issuedAt.add(const Duration(minutes: 6))), isNull);
+});
+
+test('consume 한 세션은 다시 쓸 수 없다', () {
+  // issue -> consume -> kindOf null
+});
+
+test('모르는 세션은 null 이다', () {
+  expect(VerificationSessionService().kindOf('nope'), isNull);
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/services/qr_token_service_test.dart test/services/verification_session_service_test.dart`
+Expected: FAIL — 두 파일이 아직 없다.
+
+- [ ] **Step 3: 두 서비스 구현**
+
+위 Interfaces 의 시그니처대로 구현한다. `QrTokenService` 는 종류별로 현재 토큰과 직전 토큰,
+그리고 마지막 `rotate` 시각을 들고 있다가 `kindOf` 에서 현재 값이면 즉시 종류를, 직전 값이면
+`rotate` 시각 + `graceDuration` 안쪽일 때만 종류를 돌려준다.
+`VerificationSessionService` 는 세션 id → (종류, 발급 시각) 맵을 들고 `ttl` 로 만료를 판정한다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `flutter test test/services/qr_token_service_test.dart test/services/verification_session_service_test.dart`
+Expected: PASS (10 tests)
+
+- [ ] **Step 5: 커밋**
 
 ```bash
-git add lib/services/qr_token_service.dart test/services/qr_token_service_test.dart
-git commit -m "feat: add rotating qr token service"
+git add lib/services/qr_token_service.dart lib/services/verification_session_service.dart test/services/qr_token_service_test.dart test/services/verification_session_service_test.dart
+git commit -m "feat: 등원·하원 2종 회전 토큰과 확인 세션 서비스 추가"
 ```
 
 ---
 
 ## Task 9: 학부모 알림 서비스 (인터페이스 + 기록 구현체)
 
-> 2026-09-28 설계 개정으로 새로 들어온 태스크.
+> 2026-09-28 설계 개정으로 들어온 태스크.
 > **지금은 실제 문자/카톡을 보내지 않는다.** 발송 지점을 인터페이스로 만들어 두고,
 > 이번 구현체는 알림 이벤트를 DB에 기록만 한다. 나중에 업체 계약이 되면 이 인터페이스
 > 뒤에 실제 발송기를 갈아끼운다.
+>
+> 2026-10-16 개정이 더한 경계: **이 서비스를 호출하는 곳은 학생이 QR 을 스캔하는 경로뿐이다.**
+> 관리자 보정은 저장소를 직접 쓰고 알림을 내지 않는다. 따라서 `NotificationService` 자체는
+> "호출되면 기록한다"만 하고, 호출 여부 판단은 서버 엔드포인트(Task 11)가 한다.
 
 **Files:**
 - Create: `lib/repositories/notification_log_repository.dart`
@@ -1578,107 +1373,39 @@ git commit -m "feat: add rotating qr token service"
 **Interfaces:**
 - Consumes: `NotificationLog`, `NotificationKind` (Task 5), `MemberRepository` (Task 3),
   `openTestDatabase()` (Task 2).
-- Produces: `NotificationLogRepository(Database db)` 에 `insert(NotificationLog) ->
-  Future<int>`, `getRecent({int limit}) -> Future<List<NotificationLog>>` (최신순).
-  추상 클래스 `ParentNotifier` 에 `Future<void> notify(NotificationLog log)`.
-  `RecordingParentNotifier(NotificationLogRepository)` 가 그 구현체.
-  `NotificationService({required MemberRepository memberRepository, required
-  ParentNotifier notifier})` 에 `Future<void> onCheckIn(int memberId, DateTime at)`,
-  `Future<void> onCheckOut(int memberId, DateTime at)`.
+- Produces:
+  - `NotificationLogRepository(Database db)` 에 `Future<int> insert(NotificationLog)`,
+    `Future<List<NotificationLog>> getRecent({int limit = 50})` (발생 시각 최신순)
+  - `abstract class ParentNotifier` 에 `Future<void> notify(NotificationLog log)`
+  - `RecordingParentNotifier(NotificationLogRepository)` — 그 구현체
+  - `NotificationService({required MemberRepository memberRepository,
+    required ParentNotifier notifier})` 에
+    `Future<void> onCheckIn(int memberId, DateTime at)`,
+    `Future<void> onCheckOut(int memberId, DateTime at)`
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
-`test/services/notification_service_test.dart` 생성:
+`test/services/notification_service_test.dart` 생성. 테스트 이름과 단정:
 
 ```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/models/notification_log.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/repositories/notification_log_repository.dart';
-import 'package:checkin_app/services/notification_service.dart';
-import '../helpers/test_db.dart';
+test('등원 시 학부모 연락처를 수신처로 하는 알림이 기록된다', () async {
+  // parentContact '010-1111-2222' 인 회원, onCheckIn(.., DateTime(2026,10,16,15,2))
+  // -> logs 1건, kind checkIn, recipient '010-1111-2222',
+  //    occurredAt == DateTime(2026,10,16,15,2).toIso8601String()
+});
 
-void main() {
-  test('등원 시 학부모 연락처를 수신처로 하는 알림이 기록된다', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final logRepo = NotificationLogRepository(db);
-    final service = NotificationService(
-      memberRepository: memberRepo,
-      notifier: RecordingParentNotifier(logRepo),
-    );
-    final memberId = await memberRepo.insert(
-      const Member(name: '홍길동', classId: null, parentContact: '010-1111-2222'),
-    );
+test('하원 시에도 알림이 기록된다', () async {
+  // onCheckOut -> kind checkOut
+});
 
-    await service.onCheckIn(memberId, DateTime(2026, 9, 28, 15, 2));
+test('학부모 연락처가 없어도 알림은 수신처 없이 기록된다', () async {
+  // parentContact 없는 회원 -> recipient null
+  // (관리자 화면이 "알림 대상 없음"을 볼 수 있어야 하므로 기록은 남긴다)
+});
 
-    final logs = await logRepo.getRecent();
-    expect(logs, hasLength(1));
-    expect(logs.single.memberId, memberId);
-    expect(logs.single.kind, NotificationKind.checkIn);
-    expect(logs.single.recipient, '010-1111-2222');
-    expect(logs.single.occurredAt, DateTime(2026, 9, 28, 15, 2).toIso8601String());
-    await db.close();
-  });
-
-  test('하원 시에도 알림이 기록된다', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final logRepo = NotificationLogRepository(db);
-    final service = NotificationService(
-      memberRepository: memberRepo,
-      notifier: RecordingParentNotifier(logRepo),
-    );
-    final memberId = await memberRepo.insert(
-      const Member(name: '홍길동', classId: null, parentContact: '010-1111-2222'),
-    );
-
-    await service.onCheckOut(memberId, DateTime(2026, 9, 28, 18, 30));
-
-    final logs = await logRepo.getRecent();
-    expect(logs.single.kind, NotificationKind.checkOut);
-    await db.close();
-  });
-
-  test('학부모 연락처가 없어도 알림은 수신처 없이 기록된다', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final logRepo = NotificationLogRepository(db);
-    final service = NotificationService(
-      memberRepository: memberRepo,
-      notifier: RecordingParentNotifier(logRepo),
-    );
-    final memberId = await memberRepo.insert(const Member(name: '무연락', classId: null));
-
-    await service.onCheckIn(memberId, DateTime(2026, 9, 28, 15, 0));
-
-    final logs = await logRepo.getRecent();
-    expect(logs.single.recipient, isNull);
-    await db.close();
-  });
-
-  test('getRecent 는 최신 발생 순으로 돌려준다', () async {
-    final db = await openTestDatabase();
-    final logRepo = NotificationLogRepository(db);
-    await logRepo.insert(const NotificationLog(
-      memberId: 1,
-      occurredAt: '2026-09-28T15:00:00.000',
-      kind: NotificationKind.checkIn,
-    ));
-    await logRepo.insert(const NotificationLog(
-      memberId: 1,
-      occurredAt: '2026-09-28T18:00:00.000',
-      kind: NotificationKind.checkOut,
-    ));
-
-    final logs = await logRepo.getRecent();
-    expect(logs.first.kind, NotificationKind.checkOut);
-    expect(logs.last.kind, NotificationKind.checkIn);
-    await db.close();
-  });
-}
+test('getRecent 는 최신 발생 순으로 돌려준다', () async {
+  // 15:00 checkIn, 18:00 checkOut 을 넣고 first.kind checkOut, last.kind checkIn
+});
 ```
 
 - [ ] **Step 2: 실패 확인**
@@ -1686,88 +1413,21 @@ void main() {
 Run: `flutter test test/services/notification_service_test.dart`
 Expected: FAIL — 두 파일이 아직 없다.
 
-- [ ] **Step 3: 저장소 구현**
+- [ ] **Step 3: 저장소와 서비스 구현**
 
-`lib/repositories/notification_log_repository.dart` 생성:
+위 Interfaces 의 시그니처대로 만든다. `NotificationService` 는 회원을 조회해
+`member?.parentContact` 를 수신처로 담은 `NotificationLog` 를 만들고 `notifier.notify` 에
+넘긴다. 회원을 못 찾아도 예외를 던지지 않고 수신처 없이 기록한다.
 
-```dart
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:checkin_app/models/notification_log.dart';
+`ParentNotifier` 에는 왜 인터페이스인지를 주석으로 남긴다 — 실제 발송기는 업체 계약과
+사업자등록이 가능해지는 시점에 이 뒤에 붙는다.
 
-class NotificationLogRepository {
-  final Database db;
-  NotificationLogRepository(this.db);
-
-  Future<int> insert(NotificationLog log) =>
-      db.insert('notification_logs', log.toMap());
-
-  Future<List<NotificationLog>> getRecent({int limit = 50}) async {
-    final rows = await db.query(
-      'notification_logs',
-      orderBy: 'occurred_at DESC',
-      limit: limit,
-    );
-    return rows.map(NotificationLog.fromMap).toList();
-  }
-}
-```
-
-- [ ] **Step 4: 서비스 구현**
-
-`lib/services/notification_service.dart` 생성:
-
-```dart
-import 'package:checkin_app/models/notification_log.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/repositories/notification_log_repository.dart';
-
-/// 학부모 알림을 실제로 내보내는 지점.
-///
-/// 지금은 기록만 하는 구현체 하나뿐이다. 문자/카카오 알림톡 발송기는 업체 계약과
-/// 사업자등록이 가능해지는 시점에 이 인터페이스 뒤에 붙인다.
-abstract class ParentNotifier {
-  Future<void> notify(NotificationLog log);
-}
-
-/// 알림 이벤트를 DB에 남기기만 하는 구현체. 관리자 화면이 이 기록을 보여준다.
-class RecordingParentNotifier implements ParentNotifier {
-  final NotificationLogRepository repository;
-  RecordingParentNotifier(this.repository);
-
-  @override
-  Future<void> notify(NotificationLog log) => repository.insert(log).then((_) {});
-}
-
-class NotificationService {
-  final MemberRepository memberRepository;
-  final ParentNotifier notifier;
-
-  NotificationService({required this.memberRepository, required this.notifier});
-
-  Future<void> onCheckIn(int memberId, DateTime at) =>
-      _emit(memberId, at, NotificationKind.checkIn);
-
-  Future<void> onCheckOut(int memberId, DateTime at) =>
-      _emit(memberId, at, NotificationKind.checkOut);
-
-  Future<void> _emit(int memberId, DateTime at, NotificationKind kind) async {
-    final member = await memberRepository.getById(memberId);
-    await notifier.notify(NotificationLog(
-      memberId: memberId,
-      occurredAt: at.toIso8601String(),
-      kind: kind,
-      recipient: member?.parentContact,
-    ));
-  }
-}
-```
-
-- [ ] **Step 5: 통과 확인**
+- [ ] **Step 4: 통과 확인**
 
 Run: `flutter test test/services/notification_service_test.dart`
 Expected: PASS (4 tests)
 
-- [ ] **Step 6: 커밋**
+- [ ] **Step 5: 커밋**
 
 ```bash
 git add lib/repositories/notification_log_repository.dart lib/services/notification_service.dart test/services/notification_service_test.dart
@@ -1776,7 +1436,15 @@ git commit -m "feat: 학부모 알림 서비스와 알림 기록 저장소 추�
 
 ---
 
-## Task 10: NetworkInfo + CheckInServer read endpoints
+## Task 10: NetworkInfo + CheckInServer 읽기 엔드포인트 (확인 세션 발급 포함)
+
+> 2026-10-16 개정 반영. 개정 전 본문에는 세션 개념이 없었고 `GET /api/members` 가 무조건
+> 공개였다. 스펙은 **명단 조회에도 유효한 토큰을 요구**한다 — 명단이 그냥 열려 있으면
+> 연락처 뒷 4자리 확인을 전수 시도할 표적 목록을 그대로 내주는 셈이다.
+>
+> 흐름: QR 스캔 → `GET /api/session?token=` 으로 토큰을 검증하고 세션을 받는다 →
+> 이후 읽기 요청은 세션으로 한다. `POST /api/checkin` 과 체크인 페이지(`GET /checkin`)는
+> Task 11·12 에서 붙지만, 라우터는 이번 태스크에서 자리를 잡아둔다.
 
 **Files:**
 - Create: `lib/services/network_info.dart`
@@ -1785,215 +1453,113 @@ git commit -m "feat: 학부모 알림 서비스와 알림 기록 저장소 추�
 - Test: `test/server/checkin_server_read_test.dart`
 
 **Interfaces:**
-- Consumes: `MemberRepository`, `DeviceBindingRepository` (Task 3), `AttendanceService` (Task 7), `QrTokenService` (Task 8).
-- Produces: `NetworkInfo` with `Future<String?> getLocalIPv4()`. `CheckInServer({required MemberRepository memberRepository, required DeviceBindingRepository deviceBindingRepository, required AttendanceService attendanceService, required QrTokenService qrTokenService})` with `Future<int> start({int port = 8080}) -> Future<int>` (returns actual bound port) and `Future<void> stop()`. Routes added this task: `GET /api/members`, `GET /api/device-status?deviceToken=`. `POST /api/checkin` and `GET /checkin` are added in Tasks 9-10 but the router is structured here so later tasks only add handlers.
+- Consumes: `MemberRepository`, `DeviceBindingRepository` (Task 3),
+  `AttendanceService` (Task 7), `QrTokenService`, `VerificationSessionService`,
+  `QrKind` (Task 8).
+- Produces:
+  - `NetworkInfo` 에 `Future<String?> getLocalIPv4()` — 루프백이 아닌 첫 IPv4 주소, 없으면 null
+  - `CheckInServer({required MemberRepository memberRepository,
+    required DeviceBindingRepository deviceBindingRepository,
+    required AttendanceService attendanceService,
+    required QrTokenService qrTokenService,
+    required VerificationSessionService verificationSessionService})` 에
+    `Future<int> start({int port = 8080})` (실제로 바인딩된 포트를 돌려준다),
+    `Future<void> stop()`
+  - 이번 태스크가 추가하는 라우트:
+    - `GET /api/session?token=<qr토큰>` →
+      200 `{"sessionId": "...", "kind": "checkIn"|"checkOut"}` / 403 `{"error":"invalid_token"}`
+    - `GET /api/members?session=<세션id>` →
+      200 `[{"id":1,"name":"홍길동"}]` / 403 `{"error":"invalid_session"}`
+    - `GET /api/device-status?deviceToken=<토큰>&session=<세션id>` →
+      200 `{"bound":false}` 또는 `{"bound":true,"memberId":1,"memberName":"홍길동"}` /
+      403 `{"error":"invalid_session"}`
 
-- [ ] **Step 1: Write the failing tests**
+`shelf_io.serve` 를 `InternetAddress.anyIPv4` 로 띄우고, 테스트는 `port: 0` 으로 임의 포트를
+받아 `http` 패키지로 호출한다. 응답 헤더는 모두 `content-type: application/json`.
 
-Create `test/services/network_info_test.dart`:
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`test/services/network_info_test.dart`:
 
 ```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/services/network_info.dart';
-
-void main() {
-  test('getLocalIPv4 returns null or a dotted-quad IPv4 address', () async {
-    final info = NetworkInfo();
-    final ip = await info.getLocalIPv4();
-    if (ip != null) {
-      expect(RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(ip), isTrue);
-    }
-  });
-}
+test('getLocalIPv4 는 null 이거나 점 4개 형식의 IPv4 를 돌려준다', () async {
+  final ip = await NetworkInfo().getLocalIPv4();
+  if (ip != null) {
+    expect(RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(ip), isTrue);
+  }
+});
 ```
 
-Create `test/server/checkin_server_read_test.dart`:
+`test/server/checkin_server_read_test.dart` — 서버 조립은 헬퍼 하나로 묶어 각 테스트가
+`startServer(db)` 로 포트를 받게 한다. 테스트 이름과 단정:
 
 ```dart
-import 'dart:convert';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/device_binding_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/server/checkin_server.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-import '../helpers/test_db.dart';
+test('GET /api/session 은 등원 토큰에 checkIn 세션을 발급한다', () async {
+  // qrTokenService.checkInToken 으로 호출 -> 200, body['kind'] == 'checkIn',
+  // body['sessionId'] isNotEmpty
+});
 
-void main() {
-  test('GET /api/members lists members as {id, name} JSON', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    await memberRepo.insert(const Member(name: '홍길동', classId: null));
+test('GET /api/session 은 하원 토큰에 checkOut 세션을 발급한다', () async {
+  // body['kind'] == 'checkOut'
+});
 
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: DeviceBindingRepository(db),
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: QrTokenService(),
-    );
-    final port = await server.start(port: 0);
+test('GET /api/session 은 모르는 토큰을 403 으로 거부한다', () async {
+  // token=nope -> 403, body['error'] == 'invalid_token'
+});
 
-    final response = await http.get(Uri.parse('http://localhost:$port/api/members'));
-    expect(response.statusCode, 200);
-    final body = jsonDecode(response.body) as List;
-    expect(body.single['name'], '홍길동');
+test('GET /api/members 는 세션 없이는 403 이다', () async {
+  // session 파라미터 없이 호출 -> 403, body['error'] == 'invalid_session'
+});
 
-    await server.stop();
-    await db.close();
-  });
+test('GET /api/members 는 유효한 세션으로 명단을 돌려준다', () async {
+  // 회원 '홍길동' 등록 -> /api/session 으로 세션 발급 -> /api/members?session=
+  // -> 200, body.single['name'] == '홍길동'
+});
 
-  test('GET /api/device-status reports unbound and bound devices', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final deviceRepo = DeviceBindingRepository(db);
-    final memberId = await memberRepo.insert(const Member(name: '홍길동', classId: null));
-    await deviceRepo.bind('device-1', memberId);
+test('GET /api/device-status 는 미바인딩 기기와 바인딩된 기기를 구분한다', () async {
+  // 'device-1' 을 회원에 bind 한 뒤 유효 세션으로 두 번 호출
+  // unknown -> {'bound': false}
+  // device-1 -> {'bound': true, 'memberName': '홍길동'}
+});
 
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: deviceRepo,
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: QrTokenService(),
-    );
-    final port = await server.start(port: 0);
-
-    final unbound =
-        await http.get(Uri.parse('http://localhost:$port/api/device-status?deviceToken=unknown'));
-    expect(jsonDecode(unbound.body)['bound'], isFalse);
-
-    final bound =
-        await http.get(Uri.parse('http://localhost:$port/api/device-status?deviceToken=device-1'));
-    final boundBody = jsonDecode(bound.body);
-    expect(boundBody['bound'], isTrue);
-    expect(boundBody['memberName'], '홍길동');
-
-    await server.stop();
-    await db.close();
-  });
-}
+test('GET /api/device-status 는 세션 없이는 403 이다', () async { /* ... */ });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: 실패 확인**
 
 Run: `flutter test test/services/network_info_test.dart test/server/checkin_server_read_test.dart`
-Expected: FAIL — `lib/services/network_info.dart` and `lib/server/checkin_server.dart` don't exist yet.
+Expected: FAIL — `lib/services/network_info.dart` 와 `lib/server/checkin_server.dart` 가 없다.
 
-- [ ] **Step 3: Implement NetworkInfo and the server's read endpoints**
+- [ ] **Step 3: NetworkInfo 구현**
 
-Create `lib/services/network_info.dart`:
+`NetworkInterface.list(type: InternetAddressType.IPv4, includeLoopback: false)` 를 돌며
+루프백이 아닌 첫 주소를 돌려준다. 없으면 null.
 
-```dart
-import 'dart:io';
+- [ ] **Step 4: CheckInServer 구현**
 
-class NetworkInfo {
-  Future<String?> getLocalIPv4() async {
-    final interfaces = await NetworkInterface.list(
-      type: InternetAddressType.IPv4,
-      includeLoopback: false,
-    );
-    for (final iface in interfaces) {
-      for (final addr in iface.addresses) {
-        if (!addr.isLoopback) return addr.address;
-      }
-    }
-    return null;
-  }
-}
-```
+위 Interfaces 대로 만든다. 라우터는 `Router()` 에 세 라우트를 등록하고, 세션 검증은
+핸들러들이 공유하는 비공개 헬퍼 하나로 뽑는다 — `session` 질의 파라미터를
+`verificationSessionService.kindOf` 로 확인해 null 이면 403 을 돌려주는 모양.
+`GET /api/session` 은 `qrTokenService.kindOf(token)` 가 null 이면 403, 아니면
+`verificationSessionService.issue(kind)` 로 세션을 발급해 돌려준다.
 
-Create `lib/server/checkin_server.dart`:
+`POST /api/checkin` 과 `GET /checkin` 은 이번 태스크에서 등록하지 않는다 (Task 11·12).
 
-```dart
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:shelf/shelf.dart';
-import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:shelf_router/shelf_router.dart';
-
-import 'package:checkin_app/repositories/device_binding_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-
-class CheckInServer {
-  final MemberRepository memberRepository;
-  final DeviceBindingRepository deviceBindingRepository;
-  final AttendanceService attendanceService;
-  final QrTokenService qrTokenService;
-
-  HttpServer? _server;
-
-  CheckInServer({
-    required this.memberRepository,
-    required this.deviceBindingRepository,
-    required this.attendanceService,
-    required this.qrTokenService,
-  });
-
-  Router get _router {
-    final router = Router();
-    router.get('/api/members', _handleGetMembers);
-    router.get('/api/device-status', _handleDeviceStatus);
-    return router;
-  }
-
-  Future<int> start({int port = 8080}) async {
-    _server = await shelf_io.serve(_router, InternetAddress.anyIPv4, port);
-    return _server!.port;
-  }
-
-  Future<void> stop() async {
-    await _server?.close(force: true);
-    _server = null;
-  }
-
-  Future<Response> _handleGetMembers(Request request) async {
-    final members = await memberRepository.getAll();
-    final json = members.map((m) => {'id': m.id, 'name': m.name}).toList();
-    return Response.ok(jsonEncode(json), headers: {'content-type': 'application/json'});
-  }
-
-  Future<Response> _handleDeviceStatus(Request request) async {
-    final deviceToken = request.url.queryParameters['deviceToken'];
-    if (deviceToken == null) {
-      return Response.ok(jsonEncode({'bound': false}), headers: {'content-type': 'application/json'});
-    }
-    final binding = await deviceBindingRepository.getByToken(deviceToken);
-    if (binding == null) {
-      return Response.ok(jsonEncode({'bound': false}), headers: {'content-type': 'application/json'});
-    }
-    final member = await memberRepository.getById(binding.memberId);
-    return Response.ok(
-      jsonEncode({'bound': true, 'memberId': binding.memberId, 'memberName': member?.name}),
-      headers: {'content-type': 'application/json'},
-    );
-  }
-}
-```
-
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 5: 통과 확인**
 
 Run: `flutter test test/services/network_info_test.dart test/server/checkin_server_read_test.dart`
-Expected: PASS (3 tests)
+Expected: PASS (8 tests)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: 전체 테스트 확인**
+
+Run: `flutter test`
+Expected: PASS — Task 5~10 까지의 모든 테스트가 녹색이어야 한다.
+
+- [ ] **Step 7: 커밋**
 
 ```bash
 git add lib/services/network_info.dart lib/server/checkin_server.dart test/services/network_info_test.dart test/server/checkin_server_read_test.dart
-git commit -m "feat: add local http server with member list and device status endpoints"
+git commit -m "feat: 확인 세션 발급과 세션 검증을 갖춘 로컬 서버 읽기 엔드포인트 추가"
 ```
 
 ---

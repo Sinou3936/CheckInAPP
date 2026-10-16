@@ -8,6 +8,8 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:checkin_app/repositories/device_binding_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/services/attendance_service.dart';
+import 'package:checkin_app/services/bind_attempt_throttle.dart';
+import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/services/verification_session_service.dart';
 
@@ -23,11 +25,13 @@ class CheckInServer {
   final MemberRepository memberRepository;
   final DeviceBindingRepository deviceBindingRepository;
 
-  /// `POST /api/checkin` 이 쓴다 (Task 11). 라우터 자리를 여기서 잡아둔다.
   final AttendanceService attendanceService;
-
   final QrTokenService qrTokenService;
   final VerificationSessionService verificationSessionService;
+
+  /// 알림은 `recorded` 결과에서만 낸다 — 재스캔마다 학부모에게 알림이 가면 안 된다.
+  final NotificationService notificationService;
+  final BindAttemptThrottle bindAttemptThrottle;
 
   HttpServer? _server;
 
@@ -37,6 +41,8 @@ class CheckInServer {
     required this.attendanceService,
     required this.qrTokenService,
     required this.verificationSessionService,
+    required this.notificationService,
+    required this.bindAttemptThrottle,
   });
 
   Router get _router {
@@ -44,6 +50,8 @@ class CheckInServer {
     router.get('/api/session', _handleIssueSession);
     router.get('/api/members', _handleGetMembers);
     router.get('/api/device-status', _handleDeviceStatus);
+    router.post('/api/bind', _handleBind);
+    router.post('/api/checkin', _handleCheckIn);
     return router;
   }
 
@@ -61,18 +69,41 @@ class CheckInServer {
   Response _json(Object? body, {int statusCode = 200}) => Response(
     statusCode,
     body: jsonEncode(body),
-    headers: {'content-type': 'application/json'},
+    // 모바일 브라우저가 체크 응답이나 명단을 캐시하면 낡은 상태를 보여준다.
+    headers: {'content-type': 'application/json', 'cache-control': 'no-store'},
   );
 
-  /// 요청의 확인 세션을 검증한다. 유효하지 않으면 403 응답을, 유효하면 null 을 돌려준다.
-  Response? _rejectUnlessSession(Request request) {
-    final sessionId = request.url.queryParameters['session'];
-    if (sessionId == null ||
-        verificationSessionService.kindOf(sessionId) == null) {
-      return _json({'error': 'invalid_session'}, statusCode: 403);
-    }
-    return null;
+  Response get _invalidSession =>
+      _json({'error': 'invalid_session'}, statusCode: 403);
+
+  /// 세션이 유효하면 그 종류를, 아니면 null 을 돌려준다. 질의 파라미터로 받든 본문으로
+  /// 받든 세션 판정은 이 한 곳을 지난다.
+  QrKind? _kindOfSession(String? sessionId) =>
+      sessionId == null ? null : verificationSessionService.kindOf(sessionId);
+
+  /// 요청의 확인 세션(질의 파라미터)을 검증한다. 유효하지 않으면 403 응답을, 유효하면
+  /// null 을 돌려준다.
+  Response? _rejectUnlessSession(Request request) =>
+      _kindOfSession(request.url.queryParameters['session']) == null
+      ? _invalidSession
+      : null;
+
+  String? _sessionIdOf(Map<String, Object?> body) {
+    final sessionId = body['session'];
+    return sessionId is String ? sessionId : null;
   }
+
+  /// JSON 객체 본문을 읽는다. 본문이 JSON 객체가 아니면 null.
+  Future<Map<String, Object?>?> _readJsonBody(Request request) async {
+    try {
+      final decoded = jsonDecode(await request.readAsString());
+      return decoded is Map<String, Object?> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Response get _badRequest => _json({'error': 'bad_request'}, statusCode: 400);
 
   Future<Response> _handleIssueSession(Request request) async {
     final token = request.url.queryParameters['token'];
@@ -116,5 +147,105 @@ class CheckInServer {
       'memberId': binding.memberId,
       'memberName': member.name,
     });
+  }
+
+  /// 처음 온 폰을 회원에 묶는다. 학부모 연락처 뒷 4자리로 본인을 확인한다.
+  ///
+  /// 세션을 소비하지 않는다 — 바인딩 뒤 같은 세션으로 곧바로 체크까지 할 수 있어야 한다.
+  Future<Response> _handleBind(Request request) async {
+    final body = await _readJsonBody(request);
+    if (body == null) return _badRequest;
+    if (_kindOfSession(_sessionIdOf(body)) == null) return _invalidSession;
+
+    final deviceToken = body['deviceToken'];
+    if (deviceToken is! String || deviceToken.isEmpty) return _badRequest;
+
+    // 4자리 비교보다 먼저 본다 — 잠긴 기기는 올바른 4자리를 보내도 통과하면 안 된다.
+    if (bindAttemptThrottle.isLocked(deviceToken)) {
+      return _json({'error': 'too_many_attempts'}, statusCode: 429);
+    }
+
+    final memberId = body['memberId'];
+    final member = memberId is int
+        ? await memberRepository.getById(memberId)
+        : null;
+    if (member == null) {
+      return _json({'error': 'unknown_member'}, statusCode: 400);
+    }
+
+    // 숫자만 남겨 비교한다 — 관리자가 하이픈 유무 어느 쪽으로 입력했든 같게 판정되어야 한다.
+    // 4자리가 안 되는 연락처는 확인 수단이 못 되므로 연락처가 없는 것과 같이 다룬다.
+    final digits = member.parentContact?.replaceAll(RegExp(r'\D'), '') ?? '';
+    if (digits.length < 4) {
+      return _json({'error': 'verification_unavailable'}, statusCode: 403);
+    }
+
+    if (body['contactLast4'] != digits.substring(digits.length - 4)) {
+      bindAttemptThrottle.recordFailure(deviceToken);
+      return _json({'error': 'verification_failed'}, statusCode: 403);
+    }
+
+    bindAttemptThrottle.clear(deviceToken);
+    await deviceBindingRepository.bind(deviceToken, member.id!);
+    return _json({'bound': true, 'memberName': member.name});
+  }
+
+  /// 묶인 폰의 등원 또는 하원을 기록한다. 등원인지 하원인지는 세션에 담긴 QR 종류가
+  /// 정한다 — 클라이언트가 고를 수 있으면 등원 QR 로 하원을 위조할 수 있다.
+  Future<Response> _handleCheckIn(Request request) async {
+    final body = await _readJsonBody(request);
+    if (body == null) return _badRequest;
+    final sessionId = _sessionIdOf(body);
+    final kind = _kindOfSession(sessionId);
+    if (kind == null) return _invalidSession;
+
+    final deviceToken = body['deviceToken'];
+    final binding = deviceToken is String
+        ? await deviceBindingRepository.getByToken(deviceToken)
+        : null;
+    // 회원이 삭제됐는데 바인딩만 남은 기기도 미바인딩으로 본다 (_handleDeviceStatus 와 같다).
+    final member = binding == null
+        ? null
+        : await memberRepository.getById(binding.memberId);
+    if (member == null) {
+      return _json({'error': 'member_required'}, statusCode: 400);
+    }
+
+    final now = DateTime.now();
+    final Map<String, Object?> result;
+    switch (kind) {
+      case QrKind.checkIn:
+        final outcome = await attendanceService.recordCheckIn(
+          member.id!,
+          now: now,
+        );
+        if (outcome.status == CheckInStatus.recorded) {
+          await notificationService.onCheckIn(member.id!, now);
+          result = {
+            'result': 'checkedIn',
+            'memberName': member.name,
+            'status': outcome.attendance.status.name,
+          };
+        } else {
+          result = {'result': 'alreadyCheckedIn', 'memberName': member.name};
+        }
+      case QrKind.checkOut:
+        final outcome = await attendanceService.recordCheckOut(
+          member.id!,
+          now: now,
+        );
+        switch (outcome.status) {
+          case CheckOutStatus.noOpenSession:
+            return _json({'error': 'no_open_session'}, statusCode: 400);
+          case CheckOutStatus.recorded:
+            await notificationService.onCheckOut(member.id!, now);
+            result = {'result': 'checkedOut', 'memberName': member.name};
+          case CheckOutStatus.alreadyCheckedOut:
+            result = {'result': 'alreadyCheckedOut', 'memberName': member.name};
+        }
+    }
+
+    verificationSessionService.consume(sessionId!);
+    return _json(result);
   }
 }

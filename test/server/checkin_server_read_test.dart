@@ -8,8 +8,11 @@ import 'package:checkin_app/repositories/attendance_repository.dart';
 import 'package:checkin_app/repositories/class_repository.dart';
 import 'package:checkin_app/repositories/device_binding_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/repositories/notification_log_repository.dart';
 import 'package:checkin_app/server/checkin_server.dart';
 import 'package:checkin_app/services/attendance_service.dart';
+import 'package:checkin_app/services/bind_attempt_throttle.dart';
+import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/services/verification_session_service.dart';
 
@@ -47,6 +50,11 @@ class _Harness {
       ),
       qrTokenService: qr,
       verificationSessionService: VerificationSessionService(),
+      notificationService: NotificationService(
+        memberRepository: members,
+        notifier: RecordingParentNotifier(NotificationLogRepository(db)),
+      ),
+      bindAttemptThrottle: BindAttemptThrottle(),
     );
     final port = await server.start(port: 0);
     return _Harness(

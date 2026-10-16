@@ -51,49 +51,44 @@
 **완료된 태스크: 1–4** (모델, 스키마, Member·DeviceBinding 저장소, Class 저장소).
 커밋 기준으로 저장소에 반영되어 있다.
 
-**이번 실행 범위는 Task 5–10 이다.** 2026-10-16 스펙 개정(등원/하원 QR 분리, 최초 본인 확인
-강화, 세션 귀속 규칙)을 반영해 Task 5–10 의 본문을 전부 다시 썼다.
+**현재 실행 범위는 Task 11–15 이다.** 2026-10-16 스펙 개정(등원/하원 QR 분리, 최초 본인 확인
+강화, 세션 귀속 규칙)을 반영해 Task 5–14 의 본문을 다시 썼다.
 
 | 태스크 | 상태 |
 |---|---|
 | 1–4 | 완료 |
 | **5–10** | **구현 완료** (`3f237a2..97cf63d`, 테스트 77개 녹색, `flutter analyze` 깨끗). 전체 검토 1회 + 수정 패스 완료 |
-| 11, 12 | **개정 필요** — 체크인 엔드포인트와 페이지에 QR 2종·확인 세션·뒷 4자리 확인·알림 호출이 아직 없다 |
-| 13 | **개정 필요** — QR 회전이 토큰 2종을 함께 돌려야 한다 |
-| 14 | **개정 필요** — 회원 양식에 학부모 연락처 입력이 필요하다 |
-| 15 | 개정 불필요 |
+| **11–14** | **개정 완료 — 현재 실행 범위.** 2026-10-16 스펙 기준으로 본문이 최신이다 |
+| **15** | **개정 불필요 — 현재 실행 범위.** `ClassRepository`·`ClassModel` 만 쓰고 둘 다 바뀌지 않았다. 본문 그대로 구현한다 |
 | 16, 17 | **개정 필요** — 하원 현황·미하원 표시, 출결 기록 보정, 바인딩 이력·알림 내역 화면 |
-| 18 | **개정 필요** — 알림 서비스 배선, 결석 처리 따라잡기(`app_state`) |
+| 18 | **개정 필요** — 알림 서비스 배선, 결석 처리 따라잡기(`app_state`), DB 파일 경로 |
 
-> ⚠️ **11–18 의 본문은 아직 개정 전 설계를 서술한다.** 그대로 구현하면 QR 2종·확인 세션·
-> 본인 확인·보정 기능이 빠진 결과물이 나온다. 각 태스크를 시작하기 전에 본문을 먼저 개정할 것.
+> ⚠️ **16–18 의 본문은 아직 개정 전 설계를 서술한다.** 그대로 구현하면 하원 현황·보정 기능이
+> 빠진 결과물이 나온다. 각 태스크를 시작하기 전에 본문을 먼저 개정할 것.
 > 스펙과 충돌하면 스펙이 이긴다 (`2026-09-18-checkin-app-design.md`).
 
 ### Task 5–10 에서 이월된 사항
 
-구현과 전체 검토에서 나왔으나 이번 범위에서 고치지 않은 것들. 해당 태스크를 개정할 때 본문에
-넣을 것.
+구현과 전체 검토에서 나왔으나 그 범위에서 고치지 않은 것들. **Task 11–14 본문에는 이미
+반영했다** — 아래는 어디서 처리되는지의 색인이다.
 
-- **Task 13 (QR 회전)**: `QrTokenService.validityDuration` 을 아무도 읽지 않아 현재 토큰이
+- **Task 13 에 반영됨**: `QrTokenService.validityDuration` 을 아무도 읽지 않아 현재 토큰이
   영구 유효하다. 회전 타이머가 죽으면(핫 리로드, 콜백 예외) 촬영한 QR 이 계속 통하므로
-  "코드가 계속 바뀐다"는 보증이 조용히 사라진다. `kindOf` 에서 현재 토큰도
-  `_rotatedAt + validityDuration + graceDuration` 을 넘기면 거부하는 방어를 넣을지 결정할 것.
-- **Task 14 (회원 관리)**: 회원을 삭제해도 `device_bindings` 가 남는다. SQLite 외래키가
-  꺼져 있어 고아 행이 쌓인다 (서버는 미바인딩으로 응답하므로 동작은 안전). 삭제 시 정리하거나
-  `PRAGMA foreign_keys` 를 켤지 결정할 것. 더불어 `Member.copyWith` 는 `parentContact` 를
-  null 로 되돌릴 수 없다 — 잘못 입력한 연락처를 양식에서 지우려면 새 `Member` 를 만들어야 한다.
-- **Task 15 (앱 셸·DB 경로)**: `DatabaseHelper` 는 아직 `version: 1` 에 `onUpgrade` 가 없다.
-  지금은 파일 DB 를 여는 곳이 없어 안전하지만, 실제 경로를 붙이는 순간 Task 5 이전 체크아웃의
-  DB 파일을 가진 사람은 `no such column: parent_contact` 를 런타임에 만난다. 버전을 올리고
-  `onUpgrade` 를 붙일 것.
-- **Task 16·17 (보정 UI)**: `Attendance` 에 `copyWith` 가 없어 `AttendanceRepository.update`
-  호출자가 필드를 빠뜨리면 조용히 null 이 된다 — `check_out_time` 포함. 보정 화면을 만들기
-  전에 `copyWith` 를 추가할 것.
-- **Task 11·12 (엔드포인트·페이지)**: JSON 응답에 `cache-control` 이 없다. 모바일 브라우저가
+  "코드가 계속 바뀐다"는 보증이 조용히 사라진다. 또 `CheckInServer.start` 가 재진입을 막지
+  않아 두 번 부르면 첫 리스너가 샌다.
+- **Task 14 에 반영됨**: 회원을 삭제해도 `device_bindings` 가 남는다 (서버는 미바인딩으로
+  응답하므로 동작은 안전). `Member.copyWith` 는 `parentContact` 를 null 로 되돌릴 수 없어
+  잘못 입력한 연락처를 양식에서 지울 수 없다.
+- **Task 11 에 반영됨**: JSON 응답에 `cache-control` 이 없다. 모바일 브라우저가
   `/api/device-status` 나 `/api/members` 를 캐시하면 낡은 명단·바인딩 상태를 보여줄 수 있다.
-  `no-store` 를 붙일 것. 확인 세션 id 가 질의 문자열로 다니므로 폰 기록에 남는 점도 감안할 것.
-- **Task 13 (서버 수명)**: `CheckInServer.start` 가 재진입을 막지 않아 두 번 부르면 첫 리스너가
-  샌다 (`stop` 은 두 번째만 닫는다).
+  확인 세션 id 가 질의 문자열로 다니므로 폰 기록에 남는 점도 감안할 것.
+- **Task 16·17 에서 처리할 것** (아직 본문 미개정): `Attendance` 에 `copyWith` 가 없어
+  `AttendanceRepository.update` 호출자가 필드를 빠뜨리면 조용히 null 이 된다 —
+  `check_out_time` 포함. 보정 화면을 만들기 전에 `copyWith` 를 추가할 것.
+- **Task 18 에서 처리할 것** (아직 본문 미개정): `DatabaseHelper` 는 아직 `version: 1` 에
+  `onUpgrade` 가 없다. 지금은 파일 DB 를 여는 곳이 없어 안전하지만, 앱 셸이 실제 경로를
+  붙이는 순간 Task 5 이전 체크아웃의 DB 파일을 가진 사람은 `no such column: parent_contact`
+  를 런타임에 만난다. 버전을 올리고 `onUpgrade` 를 붙일 것.
 - **Task 18 (결석 스케줄러)**: `markAbsentees` 는 현재 날짜에 돌려도 안전하다 — 결석 행이
   먼저 들어와도 그 뒤의 등원 스캔이 그 행을 등원으로 올린다(`fillCheckIn`). 다만 스펙은
   "하루 종료 시점"을 정하고 있으므로 그대로 따를 것.
@@ -102,8 +97,24 @@
 
 ## Review Focus
 
-이번 범위(Task 5–10)의 태스크 테스트가 직접 다루지 않으면서, 쓰는 사람을 물 가능성이 높은
-입력·상황들. 각 줄의 테스트는 그 코드를 소유한 태스크에 이미 넣어두었다.
+실행 범위의 태스크 테스트가 직접 다루지 않으면서, 쓰는 사람을 물 가능성이 높은 입력·상황들.
+각 줄의 테스트는 그 코드를 소유한 태스크에 넣어둔다.
+
+### Task 11–15 (현재 범위)
+
+- **재스캔으로 학부모 알림이 두 번 가는 것** — 등원·하원을 다시 찍어도 알림은 한 번만 나가야
+  한다. `recorded` 일 때만 알림을 내는 규칙이 엔드포인트에서 실제로 지켜지는지 (Task 11).
+- **뒷 4자리 전수 시도** — 로컬 네트워크에서 스크립트로 1만 조합을 돌릴 수 있다. 5회 실패
+  뒤에는 올바른 4자리를 보내도 잠겨 있어야 한다 (Task 11).
+- **연락처가 저장 형식에 따라 갈리는 것** — `'010-1111-2222'` 와 `'01011112222'` 가 같은
+  뒷 4자리로 판정되어야 한다. 숫자만 남겨 비교한다 (Task 11).
+- **인터넷 없는 네트워크에서 열리는 페이지** — 체크인 페이지가 CDN 스크립트·폰트를 참조하면
+  학원 WiFi(WAN 끊김 포함)에서 그 자리에서 깨진다. 외부 리소스를 참조하지 않아야 한다
+  (Task 12).
+- **빈 문자열 연락처** — 회원 양식에서 연락처를 비워두면 `null` 로 저장되어야 한다. 빈
+  문자열이 들어가면 뒷 4자리 확인이 빈 값과 비교되어 아무 입력으로도 통과한다 (Task 14).
+
+### Task 5–10 (완료 — 전체 검토에서 전부 확인됨)
 
 - **자정을 넘긴 하원** — 23:50 등원 후 00:20 하원. 등원한 날짜의 행에 들어가야 하고, 다음 날
   행이 새로 생기거나 등원 없는 하원으로 기록되어서는 안 된다 (Task 6·7).
@@ -111,8 +122,8 @@
   방문에 엉뚱한 하원 시각이 붙고 거짓 알림까지 나간다. 최근 쪽을 닫아야 한다 (Task 6·7).
 - **등원 없이 하원 QR 만 스캔** — 저녁 시각의 등원(지각)으로 잘못 기록되지 않고
   `noOpenSession` 으로 거부되어야 한다 (Task 7).
-- **등원 QR 재스캔** — 하원으로 넘어가지 않고 기록도 바뀌지 않아야 한다. 이번 개정의 존재
-  이유가 이 입력이다 (Task 7).
+- **등원 QR 재스캔** — 하원으로 넘어가지 않고 기록도 바뀌지 않아야 한다. 2026-10-16 개정의
+  존재 이유가 이 입력이다 (Task 7).
 - **QR 갱신 주기를 넘긴 최초 1회 절차** — 이름 찾기 + 4자리 입력이 30초를 넘겨도 절차가
   깨지지 않아야 한다. 확인 세션이 이를 흡수한다 (Task 8·10).
 
@@ -1593,269 +1604,215 @@ git commit -m "feat: 확인 세션 발급과 세션 검증을 갖춘 로컬 서�
 
 ---
 
-## Task 11: CheckInServer check-in endpoint (POST /api/checkin)
+## Task 11: CheckInServer 쓰기 엔드포인트 (기기 바인딩 + 등원/하원 기록)
+
+> 2026-10-16 개정으로 전면 재작성. 개정 전 본문은 `POST /api/checkin` 하나가 QR 토큰을 직접
+> 받아 등원만 기록했고, 본인 확인·확인 세션·하원·알림이 모두 없었다.
+>
+> 이번 태스크가 붙이는 것은 두 개다. **바인딩**(`POST /api/bind`)은 처음 온 폰을 회원에
+> 묶으며 학부모 연락처 뒷 4자리로 본인을 확인한다. **체크**(`POST /api/checkin`)는 묶인 폰의
+> 등원 또는 하원을 기록하고, 새로 기록된 경우에만 학부모 알림을 낸다.
+>
+> 둘 다 QR 토큰이 아니라 **확인 세션**을 받는다 (Task 10). 어느 QR 을 스캔했는지는 세션에
+> 담긴 `QrKind` 가 말해주므로, 클라이언트가 등원/하원을 고르지 않는다 — 고를 수 있으면
+> 등원 QR 로 하원을 위조할 수 있다.
 
 **Files:**
+- Create: `lib/services/bind_attempt_throttle.dart`
 - Modify: `lib/server/checkin_server.dart`
-- Test: `test/server/checkin_server_checkin_test.dart`
+- Test: `test/services/bind_attempt_throttle_test.dart`
+- Test: `test/server/checkin_server_write_test.dart`
 
 **Interfaces:**
-- Consumes: everything from Task 10's `CheckInServer`, plus `AttendanceService.recordCheckIn` (Task 7) and `DeviceBindingRepository.bind` (Task 3).
-- Produces: `POST /api/checkin` accepting JSON body `{token, deviceToken?, memberId?}`. Success: `200 {success: true, memberName, status}`. Failure: `400 {error: 'invalid_token'}` for a bad/expired QR token, `400 {error: 'member_required'}` when neither an already-bound device nor an explicit `memberId` is given.
+- Consumes: Task 10 의 `CheckInServer`, `AttendanceService` 와 그 결과 타입
+  (`CheckInStatus`, `CheckOutStatus`) (Task 7), `NotificationService` (Task 9),
+  `DeviceBindingRepository.bind` (Task 5), `VerificationSessionService`, `QrKind` (Task 8).
+- Produces:
+  - `BindAttemptThrottle({int maxAttempts = 5, Duration lockout = const Duration(minutes: 10)})` 에
+    - `bool isLocked(String deviceToken, {DateTime? now})`
+    - `void recordFailure(String deviceToken, {DateTime? now})` — `maxAttempts` 번째 실패에서 잠근다
+    - `void clear(String deviceToken)` — 성공 시 실패 횟수를 지운다
+  - `CheckInServer` 생성자에 두 개 추가: `required NotificationService notificationService`,
+    `required BindAttemptThrottle bindAttemptThrottle`
+  - `POST /api/bind` — body `{session, deviceToken, memberId, contactLast4}`
+    | 상황 | 응답 |
+    |---|---|
+    | 성공 | 200 `{"bound":true,"memberName":"홍길동"}` |
+    | 세션 무효 | 403 `{"error":"invalid_session"}` |
+    | 회원 없음 | 400 `{"error":"unknown_member"}` |
+    | 회원에 학부모 연락처가 없음 | 403 `{"error":"verification_unavailable"}` |
+    | 뒷 4자리 불일치 | 403 `{"error":"verification_failed"}` |
+    | 연속 실패 5회 뒤 | 429 `{"error":"too_many_attempts"}` |
+  - `POST /api/checkin` — body `{session, deviceToken}`. 등원/하원은 세션의 `QrKind` 가 정한다.
+    | 상황 | 응답 |
+    |---|---|
+    | 등원 기록됨 | 200 `{"result":"checkedIn","memberName":"홍길동","status":"present"}` |
+    | 이미 등원함 | 200 `{"result":"alreadyCheckedIn","memberName":"홍길동"}` |
+    | 하원 기록됨 | 200 `{"result":"checkedOut","memberName":"홍길동"}` |
+    | 이미 하원함 | 200 `{"result":"alreadyCheckedOut","memberName":"홍길동"}` |
+    | 하원인데 열린 세션 없음 | 400 `{"error":"no_open_session"}` |
+    | 기기가 묶이지 않음 | 400 `{"error":"member_required"}` |
+    | 세션 무효 | 403 `{"error":"invalid_session"}` |
 
-- [ ] **Step 1: Write the failing test**
+**알림 규칙 (스펙):** `notificationService.onCheckIn` / `onCheckOut` 은 결과가 `recorded` 일
+때만 부른다. `alreadyCheckedIn`·`alreadyCheckedOut`·`no_open_session` 에서는 부르지 않는다 —
+재스캔마다 학부모에게 알림이 가면 안 된다.
 
-Create `test/server/checkin_server_checkin_test.dart`:
+**세션 소비:** 두 엔드포인트 모두 성공했을 때 `verificationSessionService.consume(session)` 을
+부른다. 바인딩 성공 뒤 같은 세션으로 체크까지 할 수 있어야 하므로, **바인딩은 소비하지 않고**
+체크만 소비한다.
 
-```dart
-import 'dart:convert';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/device_binding_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/server/checkin_server.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-import '../helpers/test_db.dart';
+- [ ] **Step 1: `BindAttemptThrottle` 의 실패하는 테스트 작성**
 
-Future<http.Response> _postCheckin(int port, Map<String, dynamic> body) {
-  return http.post(
-    Uri.parse('http://localhost:$port/api/checkin'),
-    headers: {'content-type': 'application/json'},
-    body: jsonEncode(body),
-  );
-}
-
-void main() {
-  test('rejects an invalid token', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: DeviceBindingRepository(db),
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: QrTokenService(),
-    );
-    final port = await server.start(port: 0);
-
-    final response = await _postCheckin(port, {'token': 'garbage'});
-    expect(response.statusCode, 400);
-    expect(jsonDecode(response.body)['error'], 'invalid_token');
-
-    await server.stop();
-    await db.close();
-  });
-
-  test('first-time check-in binds the device and records attendance', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final deviceRepo = DeviceBindingRepository(db);
-    final qrTokenService = QrTokenService();
-    final memberId = await memberRepo.insert(const Member(name: '홍길동', classId: null));
-
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: deviceRepo,
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: qrTokenService,
-    );
-    final port = await server.start(port: 0);
-
-    final response = await _postCheckin(port, {
-      'token': qrTokenService.currentToken,
-      'deviceToken': 'device-1',
-      'memberId': memberId,
-    });
-    expect(response.statusCode, 200);
-    final body = jsonDecode(response.body);
-    expect(body['success'], isTrue);
-    expect(body['memberName'], '홍길동');
-
-    final binding = await deviceRepo.getByToken('device-1');
-    expect(binding?.memberId, memberId);
-
-    await server.stop();
-    await db.close();
-  });
-
-  test('a previously bound device checks in without resending memberId', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final deviceRepo = DeviceBindingRepository(db);
-    final qrTokenService = QrTokenService();
-    final memberId = await memberRepo.insert(const Member(name: '홍길동', classId: null));
-    await deviceRepo.bind('device-1', memberId);
-
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: deviceRepo,
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: qrTokenService,
-    );
-    final port = await server.start(port: 0);
-
-    final response =
-        await _postCheckin(port, {'token': qrTokenService.currentToken, 'deviceToken': 'device-1'});
-    expect(response.statusCode, 200);
-    expect(jsonDecode(response.body)['memberName'], '홍길동');
-
-    await server.stop();
-    await db.close();
-  });
-
-  test('an unbound device with no memberId is rejected as member_required', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final qrTokenService = QrTokenService();
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: DeviceBindingRepository(db),
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: qrTokenService,
-    );
-    final port = await server.start(port: 0);
-
-    final response =
-        await _postCheckin(port, {'token': qrTokenService.currentToken, 'deviceToken': 'device-1'});
-    expect(response.statusCode, 400);
-    expect(jsonDecode(response.body)['error'], 'member_required');
-
-    await server.stop();
-    await db.close();
-  });
-
-  test('explicitly switching member rebinds the device', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final deviceRepo = DeviceBindingRepository(db);
-    final qrTokenService = QrTokenService();
-    final memberA = await memberRepo.insert(const Member(name: 'A', classId: null));
-    final memberB = await memberRepo.insert(const Member(name: 'B', classId: null));
-    await deviceRepo.bind('device-1', memberA);
-
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: deviceRepo,
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: qrTokenService,
-    );
-    final port = await server.start(port: 0);
-
-    final response = await _postCheckin(
-      port,
-      {'token': qrTokenService.currentToken, 'deviceToken': 'device-1', 'memberId': memberB},
-    );
-    expect(jsonDecode(response.body)['memberName'], 'B');
-    final binding = await deviceRepo.getByToken('device-1');
-    expect(binding?.memberId, memberB);
-
-    await server.stop();
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/server/checkin_server_checkin_test.dart`
-Expected: FAIL — `POST /api/checkin` route doesn't exist yet (404).
-
-- [ ] **Step 3: Implement the check-in endpoint**
-
-In `lib/server/checkin_server.dart`, add the route and handler:
-
-Update `_router` to register the new route:
+`test/services/bind_attempt_throttle_test.dart`:
 
 ```dart
-  Router get _router {
-    final router = Router();
-    router.get('/api/members', _handleGetMembers);
-    router.get('/api/device-status', _handleDeviceStatus);
-    router.post('/api/checkin', _handleCheckIn);
-    return router;
+test('실패가 maxAttempts 에 닿으면 잠긴다', () {
+  final throttle = BindAttemptThrottle(maxAttempts: 5);
+  final at = DateTime(2026, 10, 16, 15, 0);
+  for (var i = 0; i < 4; i++) {
+    throttle.recordFailure('device-1', now: at);
   }
+  expect(throttle.isLocked('device-1', now: at), isFalse);
+  throttle.recordFailure('device-1', now: at);
+  expect(throttle.isLocked('device-1', now: at), isTrue);
+});
+
+test('lockout 이 지나면 다시 풀린다', () {
+  // 5회 실패 후 at+9분 -> 잠김, at+11분 -> 풀림 (lockout 10분)
+});
+
+test('clear 는 실패 횟수를 지운다', () {
+  // 4회 실패 -> clear -> 다시 4회 실패해도 잠기지 않는다
+});
+
+test('기기별로 따로 센다', () {
+  // device-1 을 5회 실패시켜도 device-2 는 잠기지 않는다
+});
 ```
 
-Add the handler method:
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/services/bind_attempt_throttle_test.dart`
+Expected: FAIL — `lib/services/bind_attempt_throttle.dart` 가 없다.
+
+- [ ] **Step 3: `BindAttemptThrottle` 구현**
+
+기기 토큰 → (연속 실패 횟수, 마지막 실패 시각) 맵. `isLocked` 는 횟수가 `maxAttempts` 이상이고
+마지막 실패로부터 `lockout` 이 지나지 않았을 때 true. `lockout` 이 지났으면 그 항목을 지우고
+false. `VerificationSessionService` 와 같은 이유로 `recordFailure` 에서 만료된 항목을 치운다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `flutter test test/services/bind_attempt_throttle_test.dart`
+Expected: PASS (4 tests)
+
+- [ ] **Step 5: 서버 쓰기 엔드포인트의 실패하는 테스트 작성**
+
+`test/server/checkin_server_write_test.dart`. Task 10 의 `checkin_server_read_test.dart` 가 쓰는
+것과 같은 모양의 `_Harness` 를 두되, `notificationService` 와 `bindAttemptThrottle`,
+그리고 알림 확인용 `NotificationLogRepository` 를 함께 노출한다. 테스트 이름과 단정:
 
 ```dart
-  Future<Response> _handleCheckIn(Request request) async {
-    final payload = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
-    final token = payload['token'] as String?;
-    final deviceToken = payload['deviceToken'] as String?;
-    final memberId = payload['memberId'] as int?;
+test('POST /api/bind 는 뒷 4자리가 맞으면 기기를 묶는다', () async {
+  // parentContact '010-1111-2222' 인 회원, contactLast4 '2222'
+  // -> 200, body['memberName'], getByToken('device-1').memberId == memberId
+});
 
-    if (token == null || !qrTokenService.isValid(token)) {
-      return Response(400,
-          body: jsonEncode({'error': 'invalid_token'}), headers: {'content-type': 'application/json'});
-    }
+test('POST /api/bind 는 뒷 4자리가 틀리면 403 verification_failed 이고 묶지 않는다', () async {
+  // contactLast4 '9999' -> 403, getByToken('device-1') isNull
+});
 
-    int resolvedMemberId;
-    if (deviceToken != null && memberId != null) {
-      await deviceBindingRepository.bind(deviceToken, memberId);
-      resolvedMemberId = memberId;
-    } else if (deviceToken != null) {
-      final existing = await deviceBindingRepository.getByToken(deviceToken);
-      if (existing == null) {
-        return Response(400,
-            body: jsonEncode({'error': 'member_required'}),
-            headers: {'content-type': 'application/json'});
-      }
-      resolvedMemberId = existing.memberId;
-    } else if (memberId != null) {
-      resolvedMemberId = memberId;
-    } else {
-      return Response(400,
-          body: jsonEncode({'error': 'member_required'}), headers: {'content-type': 'application/json'});
-    }
+test('POST /api/bind 는 연락처가 없는 회원을 403 verification_unavailable 로 거부한다', () async {
+  // parentContact 없는 회원 -> 403, 관리자 대행이 필요하다는 뜻
+});
 
-    final attendance = await attendanceService.recordCheckIn(resolvedMemberId);
-    final member = await memberRepository.getById(resolvedMemberId);
-    return Response.ok(
-      jsonEncode({'success': true, 'memberName': member?.name, 'status': attendance.status.name}),
-      headers: {'content-type': 'application/json'},
-    );
-  }
+test('POST /api/bind 는 연락처의 하이픈 유무와 무관하게 뒷 4자리를 판정한다', () async {
+  // parentContact '01011112222' (하이픈 없음) 인 회원에 contactLast4 '2222' -> 200
+  // 저장 형식이 갈려도 같게 동작해야 한다 — 관리자가 어느 형식으로 입력했는지에 따라
+  // 학생이 바인딩에 실패하면 원인을 알 길이 없다
+});
+
+test('POST /api/bind 는 연속 5회 실패 뒤 429 를 돌려준다', () async {
+  // 틀린 4자리로 5번 -> 6번째는 429 too_many_attempts
+  // (올바른 4자리를 보내도 잠긴 동안에는 429)
+});
+
+test('POST /api/bind 는 세션 없이는 403 이다', () async { /* invalid_session */ });
+
+test('POST /api/checkin 은 등원 세션으로 등원을 기록하고 알림을 낸다', () async {
+  // 묶인 기기 + 등원 QR 세션 -> 200 result 'checkedIn', status 'present'
+  // notificationLogRepo.getRecent() 가 1건, kind checkIn
+});
+
+test('POST /api/checkin 재스캔은 alreadyCheckedIn 이고 알림을 더 내지 않는다', () async {
+  // 두 번 호출 -> 두 번째 result 'alreadyCheckedIn', 알림 로그는 여전히 1건
+});
+
+test('POST /api/checkin 은 하원 세션으로 하원을 기록하고 알림을 낸다', () async {
+  // 등원 뒤 하원 QR 세션 -> 200 result 'checkedOut', 알림 2건(checkIn, checkOut)
+});
+
+test('POST /api/checkin 은 등원 없이 하원하면 400 no_open_session 이고 알림을 내지 않는다', () async {
+  // 하원 QR 세션만 -> 400, 알림 로그 비어 있음
+});
+
+test('POST /api/checkin 은 묶이지 않은 기기를 400 member_required 로 거부한다', () async { /* ... */ });
+
+test('POST /api/checkin 은 세션 없이는 403 이다', () async { /* invalid_session */ });
+
+test('체크에 쓴 세션은 소비되어 재사용할 수 없다', () async {
+  // 등원 성공 뒤 같은 세션으로 다시 POST -> 403 invalid_session
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 6: 실패 확인**
 
-Run: `flutter test test/server/checkin_server_checkin_test.dart`
-Expected: PASS (5 tests)
+Run: `flutter test test/server/checkin_server_write_test.dart`
+Expected: FAIL — 두 라우트가 없어 404, 그리고 `CheckInServer` 생성자가 새 인자 2개를 모른다.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: 두 엔드포인트 구현**
+
+`lib/server/checkin_server.dart` 에 `router.post('/api/bind', ...)` 와
+`router.post('/api/checkin', ...)` 를 등록한다. 세션 검증은 Task 10 의
+`_rejectUnlessSession` 을 쓰되, 본문(JSON) 에서 `session` 을 읽어야 하므로 body 를 받는
+형태가 하나 더 필요하다 — 질의 파라미터용과 본문용으로 갈라 두고 둘이 같은 판정을 쓰게 한다.
+
+뒷 4자리 비교는 저장된 연락처에서 **숫자만 남겨** 마지막 4자를 취해 비교한다
+(`'010-1111-2222'` → `'2222'`). 저장 형식이 하이픈 유무로 갈려도 같게 동작해야 한다.
+
+`_json` 에 `cache-control: no-store` 를 추가한다 — 모바일 브라우저가 체크 응답이나 명단을
+캐시하면 낡은 상태를 보여준다 (Task 5~10 전체 검토의 이월 사항).
+
+- [ ] **Step 8: 통과 확인**
+
+Run: `flutter test test/server/checkin_server_write_test.dart test/server/checkin_server_read_test.dart`
+Expected: PASS (13 + 9 tests)
+
+- [ ] **Step 9: 전체 테스트 확인**
+
+Run: `flutter test`
+Expected: PASS
+
+- [ ] **Step 10: 커밋**
 
 ```bash
-git add lib/server/checkin_server.dart test/server/checkin_server_checkin_test.dart
-git commit -m "feat: add checkin endpoint with token validation and device binding"
+git add lib/services/bind_attempt_throttle.dart lib/server/checkin_server.dart test/services/bind_attempt_throttle_test.dart test/server/checkin_server_write_test.dart
+git commit -m "feat: 본인 확인 바인딩과 등원·하원 기록 엔드포인트 추가"
 ```
 
 ---
 
-## Task 12: Check-in web page + serving route
+## Task 12: 체크인 웹페이지 + 서빙 라우트
+
+> 2026-10-16 개정 반영. 개정 전 본문은 등원만 있는 한 장짜리 페이지였다. 이제 페이지는
+> 스캔한 QR 의 종류(등원/하원)에 따라 다르게 동작하고, 최초 1회는 본인 확인을 거친다.
+>
+> **테스트할 수 있는 것과 없는 것을 구분한다.** 이 프로젝트에 브라우저 자동화가 없으므로
+> 페이지 안의 JS 동작은 테스트하지 않는다. 테스트는 라우트가 HTML 을 올바른 타입으로
+> 서빙하는지와, 페이지가 Task 11·10 이 정한 엔드포인트와 결과 코드를 실제로 참조하는지까지다.
+> 후자는 사소해 보이지만, 엔드포인트 이름이 바뀌었는데 페이지만 옛 이름을 들고 있는 상황을
+> 잡아준다 — 그 조합은 수동으로 열어보지 않으면 드러나지 않는다.
 
 **Files:**
 - Create: `lib/server/checkin_page.dart`
@@ -1863,531 +1820,338 @@ git commit -m "feat: add checkin endpoint with token validation and device bindi
 - Test: `test/server/checkin_page_route_test.dart`
 
 **Interfaces:**
-- Consumes: `CheckInServer` (Tasks 8-9).
-- Produces: `const String checkInPageHtml` (a self-contained HTML+JS page). `GET /checkin` on `CheckInServer` serves it with `content-type: text/html`.
+- Consumes: Task 10·11 의 `CheckInServer` 와 그 엔드포인트·결과 코드.
+- Produces: `const String checkInPageHtml` — 외부 의존이 없는 자체 완결 HTML+JS 한 장.
+  `GET /checkin` 이 `content-type: text/html; charset=utf-8` 로 서빙한다.
 
-- [ ] **Step 1: Write the failing test**
+**페이지가 하는 일** (구현 지침이며, 각 줄이 HTML 안에 그대로 나타나야 한다):
 
-Create `test/server/checkin_page_route_test.dart`:
+1. URL 의 `?token=` 을 읽어 `GET /api/session?token=` 을 부른다. 403 이면
+   "QR 코드가 만료되었습니다. 다시 스캔해 주세요." 를 보여주고 끝낸다.
+2. 받은 `sessionId` 와 `kind` 를 기억한다. 화면 제목을 `kind` 에 따라 "등원" 또는 "하원"으로
+   둔다 — 학생이 무엇을 찍었는지 화면에서 확인할 수 있어야 한다.
+3. `localStorage` 의 `deviceToken` 을 읽는다. 없으면 `crypto.getRandomValues` 로 16자 hex 를
+   만들어 저장한다.
+4. `GET /api/device-status?deviceToken=&session=` 을 부른다.
+   - `bound: true` → 곧바로 5번으로 간다.
+   - `bound: false` → `GET /api/members?session=` 으로 명단을 받아 이름 목록을 보여주고,
+     고른 뒤 학부모 연락처 뒷 4자리를 입력받아 `POST /api/bind` 를 부른다.
+     `verification_unavailable` 이면 "관리자에게 요청해 주세요." 를,
+     `verification_failed` 면 "연락처가 일치하지 않습니다." 를,
+     `too_many_attempts` 면 "잠시 후 다시 시도해 주세요." 를 보여준다.
+5. `POST /api/checkin` 을 부르고 결과를 그린다.
+   - `checkedIn` → "{이름} 님 등원 완료" + `status` 가 `late` 면 "지각" 표시
+   - `checkedOut` → "{이름} 님 하원 완료"
+   - `alreadyCheckedIn` → "이미 등원하셨습니다"
+   - `alreadyCheckedOut` → "오늘은 이미 하원 처리되었습니다"
+   - `no_open_session` → "등원 기록이 없습니다"
+6. 하단에 "다른 사람으로 체크" 버튼을 둔다. 누르면 `localStorage` 의 `deviceToken` 을 지우고
+   4번의 본인 확인을 다시 거친다 (폰을 여러 명이 쓰는 경우).
 
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/device_binding_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/server/checkin_server.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-import '../helpers/test_db.dart';
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-void main() {
-  test('GET /checkin serves the check-in HTML page', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: DeviceBindingRepository(db),
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: QrTokenService(),
-    );
-    final port = await server.start(port: 0);
-
-    final response = await http.get(Uri.parse('http://localhost:$port/checkin?token=abc'));
-    expect(response.statusCode, 200);
-    expect(response.headers['content-type'], contains('text/html'));
-    expect(response.body, contains('id="checkin-app"'));
-    expect(response.body, contains('submitCheckIn'));
-
-    await server.stop();
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/server/checkin_page_route_test.dart`
-Expected: FAIL — `GET /checkin` doesn't exist yet (404).
-
-- [ ] **Step 3: Implement the page and the route**
-
-Create `lib/server/checkin_page.dart`:
+`test/server/checkin_page_route_test.dart`. Task 11 의 `_Harness` 와 같은 조립을 쓴다.
 
 ```dart
-const String checkInPageHtml = '''
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<title>출석 체크</title>
-<style>
-  body { font-family: sans-serif; padding: 24px; text-align: center; }
-  button { display: block; width: 100%; padding: 16px; margin: 8px 0; font-size: 18px; }
-  #status { font-size: 20px; margin-top: 24px; }
-</style>
-</head>
-<body id="checkin-app">
-<h1>출석 체크</h1>
-<div id="status">확인 중...</div>
-<div id="member-list"></div>
-<button id="switch-btn" style="display:none;">다른 사람으로 체크</button>
-<script>
-function getToken() {
-  return new URLSearchParams(window.location.search).get('token');
-}
-function getDeviceToken() {
-  return localStorage.getItem('deviceToken');
-}
-function setDeviceInfo(token, name) {
-  localStorage.setItem('deviceToken', token);
-  localStorage.setItem('memberName', name);
-}
-function clearDeviceInfo() {
-  localStorage.removeItem('deviceToken');
-  localStorage.removeItem('memberName');
-}
-function showStatus(text) {
-  document.getElementById('status').textContent = text;
-}
-async function submitCheckIn(memberId) {
-  const qrToken = getToken();
-  let deviceToken = getDeviceToken();
-  if (!deviceToken) {
-    deviceToken = crypto.randomUUID();
-  }
-  const res = await fetch('/api/checkin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: qrToken, deviceToken: deviceToken, memberId: memberId }),
-  });
-  const data = await res.json();
-  if (res.ok && data.success) {
-    setDeviceInfo(deviceToken, data.memberName);
-    showStatus(data.memberName + '\\uB2D8 ' + data.status + ' \\uCC98\\uB9AC\\uB418\\uC5C8\\uC2B5\\uB2C8\\uB2E4.');
-    document.getElementById('member-list').innerHTML = '';
-    document.getElementById('switch-btn').style.display = 'block';
-  } else {
-    showStatus('\\uCCB4\\uD06C\\uC5D0 \\uC2E4\\uD328\\uD588\\uC2B5\\uB2C8\\uB2E4: ' + (data.error || 'unknown'));
-  }
-}
-async function showMemberList() {
-  const res = await fetch('/api/members');
-  const members = await res.json();
-  const container = document.getElementById('member-list');
-  container.innerHTML = '';
-  members.forEach(function (m) {
-    const btn = document.createElement('button');
-    btn.textContent = m.name;
-    btn.onclick = function () { submitCheckIn(m.id); };
-    container.appendChild(btn);
-  });
-  showStatus('\\uBCF8\\uC778 \\uC774\\uB984\\uC744 \\uC120\\uD0DD\\uD574\\uC8FC\\uC138\\uC694');
-}
-async function init() {
-  const deviceToken = getDeviceToken();
-  if (deviceToken) {
-    const res = await fetch('/api/device-status?deviceToken=' + encodeURIComponent(deviceToken));
-    const data = await res.json();
-    if (data.bound) {
-      await submitCheckIn(data.memberId);
-      return;
-    }
-  }
-  await showMemberList();
-}
-document.getElementById('switch-btn').addEventListener('click', function () {
-  clearDeviceInfo();
-  document.getElementById('switch-btn').style.display = 'none';
-  showMemberList();
+test('GET /checkin 은 체크인 HTML 을 서빙한다', () async {
+  // 200, content-type 에 'text/html', body 에 '<!doctype html' (대소문자 무시)
 });
-init();
-</script>
-</body>
-</html>
-''';
+
+test('페이지는 서버가 실제로 가진 엔드포인트만 참조한다', () async {
+  // checkInPageHtml 에 '/api/session', '/api/device-status', '/api/members',
+  // '/api/bind', '/api/checkin' 이 모두 들어 있다
+});
+
+test('페이지는 Task 11 의 결과 코드를 모두 다룬다', () async {
+  // checkInPageHtml 에 'checkedIn', 'checkedOut', 'alreadyCheckedIn',
+  // 'alreadyCheckedOut', 'no_open_session',
+  // 'verification_failed', 'verification_unavailable', 'too_many_attempts' 가 들어 있다
+});
+
+test('페이지는 기기 토큰을 localStorage 에 둔다', () async {
+  // checkInPageHtml 에 'localStorage' 와 'deviceToken' 이 들어 있다
+});
+
+test('페이지는 외부 스크립트·스타일을 불러오지 않는다', () async {
+  // 체크인 페이지는 인터넷이 없는 로컬 네트워크에서 열린다 — CDN 을 참조하면 그 자리에서
+  // 깨진다. body 에 'http://' 와 'https://' 가 없어야 한다 (로컬 상대 경로만 쓴다)
+});
 ```
 
-(The `\\uXXXX` escapes spell out the Korean status/prompt strings so the Dart triple-quoted string has no literal non-ASCII surprises; they render as normal Korean text in the browser. If you'd rather keep the literal Korean characters in the source, that also works — just make sure the file is saved as UTF-8.)
-
-In `lib/server/checkin_server.dart`, add the import:
-
-```dart
-import 'package:checkin_app/server/checkin_page.dart';
-```
-
-Register the route in `_router`:
-
-```dart
-    router.get('/checkin', _handleCheckInPage);
-```
-
-Add the handler:
-
-```dart
-  Future<Response> _handleCheckInPage(Request request) async {
-    return Response.ok(checkInPageHtml, headers: {'content-type': 'text/html'});
-  }
-```
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: 실패 확인**
 
 Run: `flutter test test/server/checkin_page_route_test.dart`
-Expected: PASS
+Expected: FAIL — `lib/server/checkin_page.dart` 가 없고 `GET /checkin` 라우트도 없다.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: 페이지 구현**
+
+`lib/server/checkin_page.dart` 에 `const String checkInPageHtml` 로 위 1~6 을 수행하는 한 장을
+만든다. `<meta name="viewport" content="width=device-width, initial-scale=1">` 를 넣는다 —
+학생 폰에서 열린다. 외부 리소스를 참조하지 않는다.
+
+- [ ] **Step 4: 라우트 추가**
+
+`CheckInServer._router` 에 `router.get('/checkin', ...)` 를 등록하고
+`content-type: text/html; charset=utf-8` 로 돌려준다.
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `flutter test test/server/checkin_page_route_test.dart`
+Expected: PASS (5 tests)
+
+- [ ] **Step 6: 커밋**
 
 ```bash
 git add lib/server/checkin_page.dart lib/server/checkin_server.dart test/server/checkin_page_route_test.dart
-git commit -m "feat: serve the student check-in web page"
+git commit -m "feat: 등원·하원과 본인 확인을 다루는 체크인 페이지 추가"
 ```
 
 ---
 
-## Task 13: CheckInAppController (QR rotation + server lifecycle)
+## Task 13: CheckInAppController (QR 2종 회전 + 서버 수명)
+
+> 2026-10-16 개정 반영. 개정 전 본문은 QR 하나(`qrUrl`)만 들고 있었다. 카운터 화면에 등원용과
+> 하원용이 나란히 떠야 하므로 URL 도 두 개가 된다.
+>
+> Task 5~10 전체 검토의 이월 사항 두 개를 여기서 처리한다: `start` 재진입 방지와,
+> 회전 타이머가 멈췄을 때 현재 토큰이 영구 유효해지는 문제.
 
 **Files:**
 - Create: `lib/services/checkin_app_controller.dart`
+- Modify: `lib/services/qr_token_service.dart` (현재 토큰에도 수명을 적용)
+- Modify: `lib/server/checkin_server.dart` (`start` 재진입 방지)
 - Test: `test/services/checkin_app_controller_test.dart`
+- Test: `test/services/qr_token_service_test.dart` (수명 테스트 추가)
+- Test: `test/server/checkin_server_read_test.dart` (재진입 테스트 추가)
 
 **Interfaces:**
-- Consumes: `CheckInServer` (Tasks 8-10), `QrTokenService` (Task 8), `NetworkInfo` (Task 10).
-- Produces: `CheckInAppController({required QrTokenService qrTokenService, required CheckInServer server, required NetworkInfo networkInfo, int port = 8080, Duration rotationInterval = Duration(seconds: 30)})` with `ValueNotifier<String?> qrUrl`, `Future<void> start()`, `Future<void> rotateNow()`, `Future<void> stop()`.
+- Consumes: `CheckInServer` (Task 10·11·12), `QrTokenService` (Task 8),
+  `NetworkInfo` (Task 10).
+- Produces: `CheckInAppController({required QrTokenService qrTokenService,
+  required CheckInServer server, required NetworkInfo networkInfo, int port = 8080,
+  Duration rotationInterval = const Duration(seconds: 30)})` 에
+  - `ValueNotifier<String?> checkInUrl` — 등원용 QR 에 담을 주소. 서버가 뜨기 전이면 null
+  - `ValueNotifier<String?> checkOutUrl` — 하원용
+  - `Future<void> start()` — 서버를 띄우고 주소를 채우고 회전 타이머를 건다
+  - `Future<void> rotateNow()` — 즉시 두 토큰을 돌리고 두 주소를 갱신한다
+  - `Future<void> stop()` — 타이머를 끊고 서버를 내린다
+  - `void dispose()`
 
-- [ ] **Step 1: Write the failing test**
+주소 형식: `http://<로컬IPv4>:<실제포트>/checkin?token=<해당 종류의 토큰>`.
+`NetworkInfo.getLocalIPv4()` 가 null 이면 두 `ValueNotifier` 는 null 로 둔다 — 주소를 만들 수
+없다는 뜻이고, 화면은 "네트워크를 찾을 수 없습니다"를 보여줄 근거로 쓴다.
 
-Create `test/services/checkin_app_controller_test.dart`:
+**`QrTokenService` 변경:** `kindOf` 가 현재 토큰도 거부해야 한다 —
+`_rotatedAt != null && now >= _rotatedAt + validityDuration + graceDuration` 이면 null.
+지금은 `validityDuration` 을 아무도 읽지 않아, 회전 타이머가 죽으면(핫 리로드, 콜백 예외)
+촬영한 QR 이 영구히 통한다. "코드가 계속 바뀐다"는 스펙의 보증이 외부 타이머 하나에만
+걸려 있어서는 안 된다.
 
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/repositories/attendance_repository.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/device_binding_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/server/checkin_server.dart';
-import 'package:checkin_app/services/attendance_service.dart';
-import 'package:checkin_app/services/checkin_app_controller.dart';
-import 'package:checkin_app/services/network_info.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-import '../helpers/test_db.dart';
+- [ ] **Step 1: 실패하는 테스트 작성**
 
-class _FixedNetworkInfo implements NetworkInfo {
-  @override
-  Future<String?> getLocalIPv4() async => '192.168.1.50';
-}
-
-void main() {
-  test('start() binds the server, publishes a qrUrl with the current token, and rotateNow() changes it', () async {
-    final db = await openTestDatabase();
-    final memberRepo = MemberRepository(db);
-    final server = CheckInServer(
-      memberRepository: memberRepo,
-      deviceBindingRepository: DeviceBindingRepository(db),
-      attendanceService: AttendanceService(
-        memberRepository: memberRepo,
-        classRepository: ClassRepository(db),
-        attendanceRepository: AttendanceRepository(db),
-      ),
-      qrTokenService: QrTokenService(),
-    );
-    final controller = CheckInAppController(
-      qrTokenService: QrTokenService(),
-      server: server,
-      networkInfo: _FixedNetworkInfo(),
-      port: 0,
-    );
-
-    await controller.start();
-    final firstUrl = controller.qrUrl.value;
-    expect(firstUrl, isNotNull);
-    expect(firstUrl, contains('192.168.1.50'));
-    expect(firstUrl, contains('/checkin?token='));
-
-    await controller.rotateNow();
-    final secondUrl = controller.qrUrl.value;
-    expect(secondUrl, isNot(firstUrl));
-
-    await controller.stop();
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/services/checkin_app_controller_test.dart`
-Expected: FAIL — `lib/services/checkin_app_controller.dart` doesn't exist yet.
-
-- [ ] **Step 3: Implement the controller**
-
-Create `lib/services/checkin_app_controller.dart`:
+`test/services/qr_token_service_test.dart` 에 추가:
 
 ```dart
-import 'dart:async';
+test('회전이 멈추면 현재 토큰도 수명이 지나면 거부된다', () {
+  final service = QrTokenService(
+    validityDuration: const Duration(seconds: 30),
+    graceDuration: const Duration(seconds: 10),
+  );
+  final rotatedAt = DateTime(2026, 10, 16, 12, 0, 0);
+  service.rotate(now: rotatedAt);
+  final token = service.checkInToken;
 
-import 'package:flutter/foundation.dart';
-
-import 'package:checkin_app/server/checkin_server.dart';
-import 'package:checkin_app/services/network_info.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
-
-class CheckInAppController {
-  final QrTokenService qrTokenService;
-  final CheckInServer server;
-  final NetworkInfo networkInfo;
-  final int port;
-  final Duration rotationInterval;
-
-  final ValueNotifier<String?> qrUrl = ValueNotifier(null);
-
-  Timer? _rotationTimer;
-  int? _boundPort;
-
-  CheckInAppController({
-    required this.qrTokenService,
-    required this.server,
-    required this.networkInfo,
-    this.port = 8080,
-    this.rotationInterval = const Duration(seconds: 30),
-  });
-
-  Future<void> start() async {
-    _boundPort = await server.start(port: port);
-    await rotateNow();
-    _rotationTimer = Timer.periodic(rotationInterval, (_) => rotateNow());
-  }
-
-  Future<void> rotateNow() async {
-    qrTokenService.rotate();
-    final ip = await networkInfo.getLocalIPv4() ?? 'localhost';
-    qrUrl.value = 'http://$ip:$_boundPort/checkin?token=${qrTokenService.currentToken}';
-  }
-
-  Future<void> stop() async {
-    _rotationTimer?.cancel();
-    _rotationTimer = null;
-    await server.stop();
-  }
-}
+  expect(service.kindOf(token, now: rotatedAt.add(const Duration(seconds: 39))), QrKind.checkIn);
+  expect(service.kindOf(token, now: rotatedAt.add(const Duration(seconds: 41))), isNull);
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+`test/server/checkin_server_read_test.dart` 에 추가:
 
-Run: `flutter test test/services/checkin_app_controller_test.dart`
+```dart
+test('start 를 두 번 불러도 같은 포트를 돌려주고 리스너가 새지 않는다', () async {
+  // 이미 뜬 서버에 start(port: 0) 를 다시 불러도 첫 포트와 같고, stop 한 뒤 접속이 끊긴다
+});
+```
+
+`test/services/checkin_app_controller_test.dart` 생성. `NetworkInfo` 를 고정값으로 대체하는
+작은 구현체(`_FixedNetworkInfo`, `_NoNetworkInfo`)를 둔다:
+
+```dart
+test('start 는 두 종류의 주소를 각자의 토큰으로 채운다', () async {
+  // checkInUrl 과 checkOutUrl 이 모두 'http://192.168.1.50:<port>/checkin?token=' 로 시작하고,
+  // 두 주소의 token 값이 서로 다르며 각각 qrTokenService 의 checkIn/checkOut 토큰과 같다
+});
+
+test('rotateNow 는 두 주소를 모두 바꾼다', () async {
+  // 이전 두 주소를 기억하고 rotateNow 뒤 둘 다 달라진다
+});
+
+test('로컬 IPv4 를 찾을 수 없으면 두 주소가 null 이다', () async {
+  // _NoNetworkInfo -> start 뒤에도 checkInUrl, checkOutUrl 모두 null
+});
+
+test('stop 뒤에는 서버에 접속할 수 없다', () async {
+  // start -> http.get 성공 -> stop -> http.get 이 예외를 던진다
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/services/qr_token_service_test.dart test/services/checkin_app_controller_test.dart test/server/checkin_server_read_test.dart`
+Expected: FAIL — `checkin_app_controller.dart` 가 없고, 현재 토큰 수명과 `start` 재진입
+방지가 아직 없다.
+
+- [ ] **Step 3: `QrTokenService` 에 현재 토큰 수명 적용**
+
+위 변경 설명대로 `kindOf` 에 조건을 더한다. `_rotatedAt` 이 null 이면(아직 한 번도 돌지
+않았으면) 현재 토큰은 유효하다 — 앱이 막 뜬 상태다.
+
+- [ ] **Step 4: `CheckInServer.start` 재진입 방지**
+
+`_server != null` 이면 새로 띄우지 않고 기존 포트를 돌려준다.
+
+- [ ] **Step 5: `CheckInAppController` 구현**
+
+위 Interfaces 대로 만든다. `start` 는 `server.start(port: port)` 로 실제 포트를 받고,
+`networkInfo.getLocalIPv4()` 로 주소를 만들고, `Timer.periodic(rotationInterval)` 로
+`rotateNow` 를 건다. `stop` 과 `dispose` 는 타이머를 취소한다.
+
+- [ ] **Step 6: 통과 확인**
+
+Run: `flutter test`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: 커밋**
 
 ```bash
-git add lib/services/checkin_app_controller.dart test/services/checkin_app_controller_test.dart
-git commit -m "feat: add checkin app controller tying together server and qr rotation"
+git add lib/services/checkin_app_controller.dart lib/services/qr_token_service.dart lib/server/checkin_server.dart test
+git commit -m "feat: QR 2종 회전과 서버 수명을 관리하는 컨트롤러 추가"
 ```
 
 ---
 
-## Task 14: Admin UI — Member management screen
+## Task 14: 관리자 UI — 회원 관리 화면
+
+> 2026-10-16 개정 반영. 개정 전 본문에는 학부모 연락처 입력이 없었다. 연락처는 알림 수신처일
+> 뿐 아니라 **최초 기기 바인딩의 본인 확인 수단**이므로, 비어 있으면 그 회원은 폰을 혼자
+> 묶을 수 없고 관리자가 대행해야 한다 — 화면이 그 사실을 보여줘야 한다.
+>
+> Task 5~10 전체 검토의 이월 사항 두 개를 여기서 처리한다: 회원을 삭제해도 남는
+> `device_bindings` 고아 행과, `Member.copyWith` 로 연락처를 지울 수 없는 문제.
 
 **Files:**
 - Create: `lib/ui/screens/member_management_screen.dart`
+- Modify: `lib/models/member.dart` (`copyWith` 로 연락처를 지울 수 있게)
+- Modify: `lib/repositories/member_repository.dart` (삭제 시 바인딩 정리)
 - Test: `test/ui/member_management_screen_test.dart`
+- Test: `test/models/models_test.dart` (`copyWith` 테스트 추가)
+- Test: `test/repositories/member_repository_test.dart` (삭제 정리 테스트 추가)
 
 **Interfaces:**
-- Consumes: `MemberRepository`, `ClassRepository` (Tasks 3-4).
-- Produces: `MemberManagementScreen({required MemberRepository memberRepository, required ClassRepository classRepository})`, a `StatefulWidget` rendering a member list with add/delete controls.
+- Consumes: `MemberRepository`, `ClassRepository` (Task 3·4), `Member`, `ClassModel`.
+- Produces:
+  - `MemberManagementScreen({required MemberRepository memberRepository,
+    required ClassRepository classRepository})` — `StatefulWidget`. 회원 목록에
+    이름·소속 반·학부모 연락처를 보여주고 추가·수정·삭제를 할 수 있다. 연락처가 비어 있는
+    회원에는 "연락처 없음 — 기기 바인딩은 관리자 대행" 표시를 붙인다.
+  - `Member.copyWith` 에 `bool clearParentContact = false` 를 더한다. true 면
+    `parentContact` 를 null 로 만든다. (`parentContact: null` 만으로는 "바꾸지 않음"과
+    구별되지 않아, 잘못 입력한 연락처를 지울 수 없다.)
+  - `MemberRepository.delete(int id)` 가 같은 호출에서 그 회원의 `device_bindings` 행을
+    지운다. `binding_logs` 는 **지우지 않는다** — 사칭 점검용 append-only 기록이다.
 
-- [ ] **Step 1: Write the failing test**
+**결정:** `PRAGMA foreign_keys` 는 켜지 않는다. 켜면 기존 테스트 다수가 존재하지 않는
+`member_id` 로 바인딩·출결을 넣고 있어 한꺼번에 깨지고, 정리해야 할 관계는 지금 이 하나뿐이다.
+저장소가 직접 정리하는 쪽이 범위가 작다.
 
-Create `test/ui/member_management_screen_test.dart`:
+- [ ] **Step 1: 모델·저장소의 실패하는 테스트 작성**
 
-```dart
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:checkin_app/models/class_model.dart';
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-import 'package:checkin_app/ui/screens/member_management_screen.dart';
-import '../helpers/test_db.dart';
-
-void main() {
-  testWidgets('adding a member shows it in the list', (tester) async {
-    final db = await openTestDatabase();
-    final classRepo = ClassRepository(db);
-    final memberRepo = MemberRepository(db);
-    await classRepo.insert(ClassModel(name: '국어반', startTime: '15:00', operatingDays: {1}));
-
-    await tester.pumpWidget(MaterialApp(
-      home: MemberManagementScreen(memberRepository: memberRepo, classRepository: classRepo),
-    ));
-    await tester.pumpAndSettle();
-
-    expect(find.text('홍길동'), findsNothing);
-
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '홍길동');
-    await tester.tap(find.text('추가'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('홍길동'), findsOneWidget);
-    await db.close();
-  });
-
-  testWidgets('deleting a member removes it from the list', (tester) async {
-    final db = await openTestDatabase();
-    final classRepo = ClassRepository(db);
-    final memberRepo = MemberRepository(db);
-    await memberRepo.insert(const Member(name: '삭제될사람', classId: null));
-
-    await tester.pumpWidget(MaterialApp(
-      home: MemberManagementScreen(memberRepository: memberRepo, classRepository: classRepo),
-    ));
-    await tester.pumpAndSettle();
-    expect(find.text('삭제될사람'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.delete));
-    await tester.pumpAndSettle();
-    expect(find.text('삭제될사람'), findsNothing);
-    await db.close();
-  });
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `flutter test test/ui/member_management_screen_test.dart`
-Expected: FAIL — `lib/ui/screens/member_management_screen.dart` doesn't exist yet.
-
-- [ ] **Step 3: Implement the screen**
-
-Create `lib/ui/screens/member_management_screen.dart`:
+`test/models/models_test.dart` 에 추가:
 
 ```dart
-import 'package:flutter/material.dart';
-
-import 'package:checkin_app/models/class_model.dart';
-import 'package:checkin_app/models/member.dart';
-import 'package:checkin_app/repositories/class_repository.dart';
-import 'package:checkin_app/repositories/member_repository.dart';
-
-class MemberManagementScreen extends StatefulWidget {
-  final MemberRepository memberRepository;
-  final ClassRepository classRepository;
-
-  const MemberManagementScreen({
-    super.key,
-    required this.memberRepository,
-    required this.classRepository,
-  });
-
-  @override
-  State<MemberManagementScreen> createState() => _MemberManagementScreenState();
-}
-
-class _MemberManagementScreenState extends State<MemberManagementScreen> {
-  List<Member> _members = [];
-  List<ClassModel> _classes = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final members = await widget.memberRepository.getAll();
-    final classes = await widget.classRepository.getAll();
-    if (!mounted) return;
-    setState(() {
-      _members = members;
-      _classes = classes;
-    });
-  }
-
-  Future<void> _showAddDialog() async {
-    final nameController = TextEditingController();
-    int? selectedClassId = _classes.isNotEmpty ? _classes.first.id : null;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('회원 추가'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nameController, decoration: const InputDecoration(labelText: '이름')),
-              if (_classes.isNotEmpty)
-                DropdownButton<int>(
-                  value: selectedClassId,
-                  items: _classes
-                      .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
-                      .toList(),
-                  onChanged: (value) => setDialogState(() => selectedClassId = value),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await widget.memberRepository
-                    .insert(Member(name: nameController.text, classId: selectedClassId));
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                await _load();
-              },
-              child: const Text('추가'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('회원 관리')),
-      body: ListView.builder(
-        itemCount: _members.length,
-        itemBuilder: (context, index) {
-          final member = _members[index];
-          return ListTile(
-            key: ValueKey('member_${member.id}'),
-            title: Text(member.name),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: () async {
-                await widget.memberRepository.delete(member.id!);
-                await _load();
-              },
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddDialog,
-        child: const Icon(Icons.add),
-      ),
-    );
-  }
-}
+test('copyWith 는 clearParentContact 로 연락처를 지운다', () {
+  const member = Member(id: 1, name: '홍길동', parentContact: '010-0000-0000');
+  expect(member.copyWith(clearParentContact: true).parentContact, isNull);
+  expect(member.copyWith(name: '김철수').parentContact, '010-0000-0000');
+});
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+`test/repositories/member_repository_test.dart` 에 추가:
+
+```dart
+test('회원을 지우면 그 기기 바인딩도 지워진다', () async {
+  // 회원 등록 -> bind('device-1', id) -> delete(id)
+  // -> deviceRepo.getByToken('device-1') isNull
+  // -> binding_logs 는 1건 그대로 (사칭 점검 기록은 남는다)
+});
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `flutter test test/models/models_test.dart test/repositories/member_repository_test.dart`
+Expected: FAIL — `clearParentContact` 인자가 없고, 삭제가 바인딩을 남긴다.
+
+- [ ] **Step 3: 모델·저장소 구현**
+
+`Member.copyWith` 에 `bool clearParentContact = false` 를 더한다.
+`MemberRepository.delete` 에서 `device_bindings` 를 `member_id` 로 먼저 지운 뒤 회원을 지운다.
+
+- [ ] **Step 4: 화면의 실패하는 테스트 작성**
+
+`test/ui/member_management_screen_test.dart`:
+
+```dart
+testWidgets('회원을 추가하면 목록에 나온다', (tester) async {
+  // FAB 탭 -> 이름 '홍길동' 입력 -> 저장 -> 목록에 '홍길동'
+});
+
+testWidgets('학부모 연락처를 입력하면 저장되고 목록에 보인다', (tester) async {
+  // 이름 + 연락처 '010-1111-2222' -> 저장 -> 목록에 연락처가 보이고
+  // memberRepository.getAll().single.parentContact == '010-1111-2222'
+});
+
+testWidgets('연락처가 없는 회원에는 관리자 대행 안내가 붙는다', (tester) async {
+  // 연락처 없이 추가 -> 목록에 '관리자 대행' 문구가 보인다
+});
+
+testWidgets('연락처를 비워 저장하면 빈 문자열이 아니라 null 이 들어간다', (tester) async {
+  // 연락처 칸을 건드리지 않고 저장 -> getAll().single.parentContact isNull
+  // 빈 문자열이 저장되면 뒷 4자리 확인이 ''.endsWith('') 류로 통과해, 아무 입력으로도
+  // 남의 기기를 묶을 수 있게 된다
+});
+
+testWidgets('회원에 반을 지정할 수 있다', (tester) async {
+  // 반 '국어반' 이 있는 상태에서 추가 시 반을 고르면 저장된 classId 가 그 반이다
+});
+
+testWidgets('회원을 삭제하면 목록에서 사라진다', (tester) async {
+  // 추가 -> 삭제 -> 목록에 없고 getAll() 이 비어 있다
+});
+```
+
+- [ ] **Step 5: 실패 확인**
 
 Run: `flutter test test/ui/member_management_screen_test.dart`
-Expected: PASS (2 tests)
+Expected: FAIL — `lib/ui/screens/member_management_screen.dart` 가 없다.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: 화면 구현**
+
+`StatefulWidget` 으로 만든다. `initState` 에서 회원과 반을 읽어 `setState` 로 그린다.
+추가·수정은 `showDialog` 안의 양식(이름, 학부모 연락처, 반 선택)으로 받고, 저장 후 목록을
+다시 읽는다. 연락처가 비어 있으면 `null` 로 저장한다 — 빈 문자열을 넣으면 뒷 4자리 확인이
+빈 값과 비교되어 통과해버린다.
+
+- [ ] **Step 7: 통과 확인**
+
+Run: `flutter test`
+Expected: PASS
+
+- [ ] **Step 8: 커밋**
 
 ```bash
-git add lib/ui/screens/member_management_screen.dart test/ui/member_management_screen_test.dart
-git commit -m "feat: add member management screen"
+git add lib/ui lib/models/member.dart lib/repositories/member_repository.dart test
+git commit -m "feat: 학부모 연락처를 다루는 회원 관리 화면 추가"
 ```
 
 ---

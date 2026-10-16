@@ -96,6 +96,28 @@ void main() {
     );
   });
 
+  test('현재 토큰의 수명 경계는 validity + grace 정각이다', () {
+    final service = QrTokenService(
+      validityDuration: const Duration(seconds: 30),
+      graceDuration: const Duration(seconds: 10),
+    );
+    final rotatedAt = DateTime(2026, 10, 16, 12, 0, 0);
+    service.rotate(now: rotatedAt);
+    final token = service.checkInToken;
+
+    expect(
+      service.kindOf(
+        token,
+        now: rotatedAt.add(const Duration(seconds: 40, milliseconds: -1)),
+      ),
+      QrKind.checkIn,
+    );
+    expect(
+      service.kindOf(token, now: rotatedAt.add(const Duration(seconds: 40))),
+      isNull,
+    );
+  });
+
   test('한 번도 회전하지 않은 서비스의 현재 토큰은 시간이 지나도 유효하다', () {
     final service = QrTokenService();
     final farFuture = DateTime.now().add(const Duration(days: 1));

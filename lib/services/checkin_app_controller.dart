@@ -37,11 +37,17 @@ class CheckInAppController {
   });
 
   /// 서버를 띄우고 주소를 채우고 회전 타이머를 건다.
+  ///
+  /// 서버가 뜨자마자 한 번 [QrTokenService.rotate] 를 불러 회전 시각을 찍는다 — 그러지 않으면
+  /// 첫 타이머 틱까지 현재 토큰에 수명이 없어, 그 사이 타이머가 죽으면 촬영한 QR 이 영구히
+  /// 통한다. 타이머는 IP 조회를 기다리기 전에 건다: 기다리는 사이 stop/dispose 가 불려도
+  /// 그쪽이 취소할 수 있게 하려는 것이다.
   Future<void> start() async {
     _boundPort = await server.start(port: port);
-    await _refreshUrls();
+    qrTokenService.rotate();
     _rotationTimer?.cancel();
     _rotationTimer = Timer.periodic(rotationInterval, (_) => rotateNow());
+    await _refreshUrls();
   }
 
   /// 두 토큰을 즉시 돌리고 두 주소를 갱신한다.
@@ -56,11 +62,14 @@ class CheckInAppController {
     _rotationTimer = null;
     _boundPort = null;
     await server.stop();
+    // 기다리는 사이 dispose 됐으면 notifier 는 이미 해제됐다.
+    if (_disposed) return;
     checkInUrl.value = null;
     checkOutUrl.value = null;
   }
 
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     _rotationTimer?.cancel();
     _rotationTimer = null;

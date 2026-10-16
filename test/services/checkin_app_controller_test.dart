@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:checkin_app/services/checkin_app_controller.dart';
 import 'package:checkin_app/services/network_info.dart';
+import 'package:checkin_app/services/qr_token_service.dart';
 
 import '../helpers/checkin_server_harness.dart';
 
@@ -36,6 +37,20 @@ Future<(CheckInServerHarness, CheckInAppController)> _setUp({
   addTearDown(controller.dispose);
   addTearDown(controller.stop);
   return (h, controller);
+}
+
+/// `getLocalIPv4` 가 불리면 [requested] 를 완료하고 [release] 가 완료될 때까지 붙든다.
+/// start 가 IP 조회를 기다리는 사이에 stop/dispose 를 끼워 넣기 위한 장치.
+class _GatedNetworkInfo extends NetworkInfo {
+  final Completer<void> requested = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<String?> getLocalIPv4() async {
+    if (!requested.isCompleted) requested.complete();
+    await release.future;
+    return '192.168.1.50';
+  }
 }
 
 String _tokenOf(String? url) => Uri.parse(url!).queryParameters['token']!;
@@ -126,5 +141,68 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     expect(h.qr.checkInToken, tokenAfterStop);
+  });
+
+  test('start 직후부터 현재 토큰에 수명이 걸린다', () async {
+    final (h, controller) = await _setUp();
+
+    await controller.start();
+
+    // 첫 타이머 틱을 기다리지 않고도, 회전 없이 수명이 지나면 거부되어야 한다.
+    final token = h.qr.checkInToken;
+    final soon = DateTime.now().add(const Duration(seconds: 1));
+    final expired = DateTime.now().add(const Duration(seconds: 41));
+    expect(h.qr.kindOf(token, now: soon), QrKind.checkIn);
+    expect(h.qr.kindOf(token, now: expired), isNull);
+  });
+
+  test('IP 조회 중에 stop 이 불려도 회전 타이머가 남지 않는다', () async {
+    final network = _GatedNetworkInfo();
+    final (h, controller) = await _setUp(
+      networkInfo: network,
+      rotationInterval: const Duration(milliseconds: 20),
+    );
+
+    final starting = controller.start();
+    await network.requested.future;
+    await controller.stop();
+    network.release.complete();
+    await starting;
+    final tokenAfterStop = h.qr.checkInToken;
+
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(h.qr.checkInToken, tokenAfterStop);
+    expect(controller.checkInUrl.value, isNull);
+  });
+
+  test('IP 조회 중에 dispose 가 불려도 회전 타이머가 남지 않는다', () async {
+    final network = _GatedNetworkInfo();
+    final (h, controller) = await _setUp(
+      networkInfo: network,
+      rotationInterval: const Duration(milliseconds: 20),
+    );
+
+    final starting = controller.start();
+    await network.requested.future;
+    controller.dispose();
+    network.release.complete();
+    await starting;
+    final tokenAfterDispose = h.qr.checkInToken;
+
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(h.qr.checkInToken, tokenAfterDispose);
+  });
+
+  test('stop 을 기다리지 않고 dispose 해도 해제된 notifier 에 쓰지 않는다', () async {
+    final (_, controller) = await _setUp();
+    await controller.start();
+    expect(controller.checkInUrl.value, isNotNull);
+
+    final stopping = controller.stop();
+    controller.dispose();
+
+    await stopping;
   });
 }

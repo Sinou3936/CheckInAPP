@@ -7,6 +7,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'package:checkin_app/repositories/device_binding_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/server/checkin_page.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/notification_service.dart';
@@ -47,6 +48,7 @@ class CheckInServer {
 
   Router get _router {
     final router = Router();
+    router.get('/checkin', _handleCheckInPage);
     router.get('/api/session', _handleIssueSession);
     router.get('/api/members', _handleGetMembers);
     router.get('/api/device-status', _handleDeviceStatus);
@@ -112,6 +114,15 @@ class CheckInServer {
   }
 
   Response get _badRequest => _json({'error': 'bad_request'}, statusCode: 400);
+
+  Future<Response> _handleCheckInPage(Request request) async => Response.ok(
+    checkInPageHtml,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      // 페이지가 낡은 채 캐시되면 서버가 바뀐 뒤에도 옛 엔드포인트를 부른다.
+      'cache-control': 'no-store',
+    },
+  );
 
   Future<Response> _handleIssueSession(Request request) async {
     final token = request.url.queryParameters['token'];

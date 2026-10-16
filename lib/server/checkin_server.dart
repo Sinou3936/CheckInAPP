@@ -58,7 +58,12 @@ class CheckInServer {
   }
 
   /// 실제로 바인딩된 포트를 돌려준다 (`port: 0` 이면 임의 포트).
+  ///
+  /// 이미 떠 있으면 새로 띄우지 않고 기존 포트를 돌려준다 — 그러지 않으면 먼저 뜬 리스너가
+  /// 핸들을 잃어 [stop] 으로도 내릴 수 없게 된다.
   Future<int> start({int port = 8080}) async {
+    final running = _server;
+    if (running != null) return running.port;
     _server = await shelf_io.serve(_router.call, InternetAddress.anyIPv4, port);
     return _server!.port;
   }

@@ -135,4 +135,17 @@ void main() {
     expect(response.statusCode, 403);
     expect((jsonDecode(response.body) as Map)['error'], 'invalid_session');
   });
+
+  test('start 를 두 번 불러도 같은 포트를 돌려주고 리스너가 새지 않는다', () async {
+    final h = await CheckInServerHarness.start();
+    addTearDown(h.close);
+
+    final secondPort = await h.server.start(port: 0);
+    expect(secondPort, h.port);
+    expect((await http.get(h.uri('/checkin'))).statusCode, 200);
+
+    // 리스너가 하나 새었다면 stop 한 뒤에도 먼저 뜬 쪽이 접속을 받는다.
+    await h.server.stop();
+    await expectLater(http.get(h.uri('/checkin')), throwsA(anything));
+  });
 }

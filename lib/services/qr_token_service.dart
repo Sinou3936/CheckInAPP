@@ -13,7 +13,8 @@ enum QrKind { checkIn, checkOut }
 /// 순간에 스캔한 학생을 떨어뜨리지 않기 위함이다.
 class QrTokenService {
   /// 토큰을 다시 돌려야 하는 간격. 이 클래스는 스스로 타이머를 돌리지 않는다 —
-  /// 화면을 들고 있는 쪽이 이 값을 보고 [rotate] 를 호출한다.
+  /// 화면을 들고 있는 쪽이 이 값을 보고 [rotate] 를 호출한다. 현재 토큰의 수명 상한
+  /// ([graceDuration] 과 합친 값)으로도 쓰인다.
   final Duration validityDuration;
 
   /// 갱신 직후 직전 토큰을 계속 받아주는 시간.
@@ -47,14 +48,23 @@ class QrTokenService {
   }
 
   /// 토큰이 유효하면 그 종류를, 아니면 null 을 돌려준다.
+  ///
+  /// 현재 토큰도 마지막 [rotate] 로부터 [validityDuration] + [graceDuration] 이 지나면
+  /// 거부한다. 회전 타이머가 죽어도(핫 리로드, 콜백 예외) 촬영한 QR 이 영구히 통하지 않게
+  /// 하는 안전장치다. 한 번도 회전하지 않았으면(앱이 막 뜬 상태) 현재 토큰은 유효하다.
   QrKind? kindOf(String token, {DateTime? now}) {
+    final checkTime = now ?? DateTime.now();
+    final rotatedAt = _rotatedAt;
+
     for (final kind in QrKind.values) {
-      if (_current[kind] == token) return kind;
+      if (_current[kind] != token) continue;
+      final expired =
+          rotatedAt != null &&
+          !checkTime.isBefore(rotatedAt.add(validityDuration + graceDuration));
+      return expired ? null : kind;
     }
 
-    final rotatedAt = _rotatedAt;
     if (rotatedAt == null) return null;
-    final checkTime = now ?? DateTime.now();
     if (!checkTime.isBefore(rotatedAt.add(graceDuration))) return null;
 
     for (final kind in QrKind.values) {

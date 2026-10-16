@@ -30,18 +30,26 @@ void main() {
   });
 
   test('페이지는 Task 11 의 결과 코드를 모두 다룬다', () {
+    // 따옴표까지 맞춘다 — 'checkedIn' 은 'alreadyCheckedIn' 의 부분 문자열이 아니다.
     for (final code in [
-      'checkedIn',
-      'checkedOut',
-      'alreadyCheckedIn',
-      'alreadyCheckedOut',
-      'no_open_session',
-      'verification_failed',
-      'verification_unavailable',
-      'too_many_attempts',
+      "'checkedIn'",
+      "'checkedOut'",
+      "'alreadyCheckedIn'",
+      "'alreadyCheckedOut'",
+      "'no_open_session'",
+      "'verification_failed'",
+      "'verification_unavailable'",
+      "'too_many_attempts'",
+      "'member_required'",
+      "'invalid_session'",
     ]) {
       expect(checkInPageHtml, contains(code), reason: code);
     }
+  });
+
+  test('페이지는 스캔한 QR 종류가 하원인지를 읽는다', () {
+    expect(checkInPageHtml, contains("'checkOut'"));
+    expect(checkInPageHtml, contains("kind === 'checkOut'"));
   });
 
   test('페이지는 기기 토큰을 localStorage 에 둔다', () {

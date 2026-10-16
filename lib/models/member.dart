@@ -22,15 +22,20 @@ class Member {
     parentContact: map['parent_contact'] as String?,
   );
 
+  /// `parentContact: null` 은 "바꾸지 않음"과 구별되지 않으므로, 연락처를 지우려면
+  /// [clearParentContact] 를 true 로 준다.
   Member copyWith({
     int? id,
     String? name,
     int? classId,
     String? parentContact,
+    bool clearParentContact = false,
   }) => Member(
     id: id ?? this.id,
     name: name ?? this.name,
     classId: classId ?? this.classId,
-    parentContact: parentContact ?? this.parentContact,
+    parentContact: clearParentContact
+        ? null
+        : (parentContact ?? this.parentContact),
   );
 }

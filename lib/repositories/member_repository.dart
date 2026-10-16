@@ -14,8 +14,16 @@ class MemberRepository {
     whereArgs: [member.id],
   );
 
-  Future<void> delete(int id) =>
-      db.delete('members', where: 'id = ?', whereArgs: [id]);
+  /// 회원과 그 회원의 기기 바인딩을 함께 지운다. `PRAGMA foreign_keys` 를 켜지 않으므로
+  /// 정리를 여기서 직접 한다. `binding_logs` 는 사칭 점검용 append-only 기록이라 남긴다.
+  Future<void> delete(int id) => db.transaction((txn) async {
+    await txn.delete(
+      'device_bindings',
+      where: 'member_id = ?',
+      whereArgs: [id],
+    );
+    await txn.delete('members', where: 'id = ?', whereArgs: [id]);
+  });
 
   Future<Member?> getById(int id) async {
     final rows = await db.query('members', where: 'id = ?', whereArgs: [id]);

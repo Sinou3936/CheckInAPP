@@ -26,6 +26,12 @@ void main() {
     expect(Member.fromMap(member.toMap()).parentContact, isNull);
   });
 
+  test('copyWith 는 clearParentContact 로 연락처를 지운다', () {
+    const member = Member(id: 1, name: '홍길동', parentContact: '010-0000-0000');
+    expect(member.copyWith(clearParentContact: true).parentContact, isNull);
+    expect(member.copyWith(name: '김철수').parentContact, '010-0000-0000');
+  });
+
   test('ClassModel round-trips and reports operating days correctly', () {
     final classModel = ClassModel(
       id: 1,

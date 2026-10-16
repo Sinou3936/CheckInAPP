@@ -93,6 +93,14 @@ class CheckInServer {
     return sessionId is String ? sessionId : null;
   }
 
+  /// 본문의 기기 토큰. 없거나 문자열이 아니거나 비어 있으면 null — 두 엔드포인트가 같은
+  /// 입력에 같은 답(`bad_request`)을 하도록 한 곳에서 판정한다. `member_required` 는
+  /// "이 기기를 묶으라"는 뜻이므로 필드를 못 보낸 클라이언트에게 쓰면 안 된다.
+  String? _deviceTokenOf(Map<String, Object?> body) {
+    final deviceToken = body['deviceToken'];
+    return deviceToken is String && deviceToken.isNotEmpty ? deviceToken : null;
+  }
+
   /// JSON 객체 본문을 읽는다. 본문이 JSON 객체가 아니면 null.
   Future<Map<String, Object?>?> _readJsonBody(Request request) async {
     try {
@@ -157,18 +165,25 @@ class CheckInServer {
     if (body == null) return _badRequest;
     if (_kindOfSession(_sessionIdOf(body)) == null) return _invalidSession;
 
-    final deviceToken = body['deviceToken'];
-    if (deviceToken is! String || deviceToken.isEmpty) return _badRequest;
+    final deviceToken = _deviceTokenOf(body);
+    if (deviceToken == null) return _badRequest;
 
-    // 4자리 비교보다 먼저 본다 — 잠긴 기기는 올바른 4자리를 보내도 통과하면 안 된다.
-    if (bindAttemptThrottle.isLocked(deviceToken)) {
+    // 잠금 판정에 회원이 필요해서 DB 조회보다 먼저 memberId 만 읽는다. 정수가 아니면
+    // 시도 자체가 성립하지 않으므로 잠금과 무관하게 모르는 회원으로 답한다.
+    final memberId = body['memberId'];
+    if (memberId is! int) {
+      return _json({'error': 'unknown_member'}, statusCode: 400);
+    }
+
+    // 4자리 비교보다 먼저 본다 — 잠긴 쪽은 올바른 4자리를 보내도 통과하면 안 된다.
+    if (bindAttemptThrottle.isLocked(
+      deviceToken: deviceToken,
+      memberId: memberId,
+    )) {
       return _json({'error': 'too_many_attempts'}, statusCode: 429);
     }
 
-    final memberId = body['memberId'];
-    final member = memberId is int
-        ? await memberRepository.getById(memberId)
-        : null;
+    final member = await memberRepository.getById(memberId);
     if (member == null) {
       return _json({'error': 'unknown_member'}, statusCode: 400);
     }
@@ -181,11 +196,14 @@ class CheckInServer {
     }
 
     if (body['contactLast4'] != digits.substring(digits.length - 4)) {
-      bindAttemptThrottle.recordFailure(deviceToken);
+      bindAttemptThrottle.recordFailure(
+        deviceToken: deviceToken,
+        memberId: memberId,
+      );
       return _json({'error': 'verification_failed'}, statusCode: 403);
     }
 
-    bindAttemptThrottle.clear(deviceToken);
+    bindAttemptThrottle.clear(deviceToken: deviceToken, memberId: memberId);
     await deviceBindingRepository.bind(deviceToken, member.id!);
     return _json({'bound': true, 'memberName': member.name});
   }
@@ -199,10 +217,10 @@ class CheckInServer {
     final kind = _kindOfSession(sessionId);
     if (kind == null) return _invalidSession;
 
-    final deviceToken = body['deviceToken'];
-    final binding = deviceToken is String
-        ? await deviceBindingRepository.getByToken(deviceToken)
-        : null;
+    final deviceToken = _deviceTokenOf(body);
+    if (deviceToken == null) return _badRequest;
+
+    final binding = await deviceBindingRepository.getByToken(deviceToken);
     // 회원이 삭제됐는데 바인딩만 남은 기기도 미바인딩으로 본다 (_handleDeviceStatus 와 같다).
     final member = binding == null
         ? null

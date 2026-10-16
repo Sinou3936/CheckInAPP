@@ -1707,7 +1707,17 @@ false. `VerificationSessionService` 와 같은 이유로 `recordFailure` 에서 
 Run: `flutter test test/services/bind_attempt_throttle_test.dart`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: 서버 쓰기 엔드포인트의 실패하는 테스트 작성**
+- [ ] **Step 5: 커밋**
+
+이 태스크는 커밋을 두 번 한다. 차단 장치와 두 엔드포인트는 각각 독립적으로 검토될 수 있는
+단위이므로, 여기서 한 번 끊어 TDD 사이클을 짧게 유지한다.
+
+```bash
+git add lib/services/bind_attempt_throttle.dart test/services/bind_attempt_throttle_test.dart
+git commit -m "feat: 기기 바인딩 실패 차단 장치 추가"
+```
+
+- [ ] **Step 6: 서버 쓰기 엔드포인트의 실패하는 테스트 작성**
 
 `test/server/checkin_server_write_test.dart`. Task 10 의 `checkin_server_read_test.dart` 가 쓰는
 것과 같은 모양의 `_Harness` 를 두되, `notificationService` 와 `bindAttemptThrottle`,
@@ -1766,12 +1776,12 @@ test('체크에 쓴 세션은 소비되어 재사용할 수 없다', () async {
 });
 ```
 
-- [ ] **Step 6: 실패 확인**
+- [ ] **Step 7: 실패 확인**
 
 Run: `flutter test test/server/checkin_server_write_test.dart`
 Expected: FAIL — 두 라우트가 없어 404, 그리고 `CheckInServer` 생성자가 새 인자 2개를 모른다.
 
-- [ ] **Step 7: 두 엔드포인트 구현**
+- [ ] **Step 8: 두 엔드포인트 구현**
 
 `lib/server/checkin_server.dart` 에 `router.post('/api/bind', ...)` 와
 `router.post('/api/checkin', ...)` 를 등록한다. 세션 검증은 Task 10 의
@@ -1784,17 +1794,17 @@ Expected: FAIL — 두 라우트가 없어 404, 그리고 `CheckInServer` 생성
 `_json` 에 `cache-control: no-store` 를 추가한다 — 모바일 브라우저가 체크 응답이나 명단을
 캐시하면 낡은 상태를 보여준다 (Task 5~10 전체 검토의 이월 사항).
 
-- [ ] **Step 8: 통과 확인**
+- [ ] **Step 9: 통과 확인**
 
 Run: `flutter test test/server/checkin_server_write_test.dart test/server/checkin_server_read_test.dart`
 Expected: PASS (13 + 9 tests)
 
-- [ ] **Step 9: 전체 테스트 확인**
+- [ ] **Step 10: 전체 테스트 확인**
 
 Run: `flutter test`
 Expected: PASS
 
-- [ ] **Step 10: 커밋**
+- [ ] **Step 11: 커밋**
 
 ```bash
 git add lib/services/bind_attempt_throttle.dart lib/server/checkin_server.dart test/services/bind_attempt_throttle_test.dart test/server/checkin_server_write_test.dart

@@ -20,12 +20,39 @@ class AttendanceRepository {
     conflictAlgorithm: ConflictAlgorithm.ignore,
   );
 
-  /// 하원 기록과 관리자 보정이 모두 이 경로를 쓴다.
+  /// 행 전체를 덮어쓴다. 관리자 보정이 이 경로를 쓴다.
   Future<void> update(Attendance attendance) => db.update(
     'attendance',
     attendance.toMap(),
     where: 'id = ?',
     whereArgs: [attendance.id],
+  );
+
+  /// 열려 있는 세션에만 하원 시각을 채운다. 바뀐 행 수를 돌려준다.
+  ///
+  /// 조건을 SQL 안에 두는 이유: 읽고 쓰는 사이에 같은 순간의 다른 요청이 먼저 닫았다면
+  /// 0 이 돌아온다. 두 요청이 모두 "방금 하원 처리했다"고 답하면 학부모에게 하원 알림이
+  /// 두 번 간다.
+  Future<int> closeSession(int id, String checkOutTime) => db.update(
+    'attendance',
+    {'check_out_time': checkOutTime},
+    where: 'id = ? AND check_out_time IS NULL',
+    whereArgs: [id],
+  );
+
+  /// 등원 시각이 비어 있는 행(자동 결석 처리된 기록)에만 등원을 채운다. 바뀐 행 수를 돌려준다.
+  ///
+  /// 결석으로 처리된 회원이 실제로 왔을 때 쓴다. [closeSession] 과 같은 이유로 조건을
+  /// SQL 안에 둔다.
+  Future<int> fillCheckIn(
+    int id,
+    String checkInTime,
+    AttendanceStatus status,
+  ) => db.update(
+    'attendance',
+    {'check_in_time': checkInTime, 'status': status.name},
+    where: 'id = ? AND check_in_time IS NULL',
+    whereArgs: [id],
   );
 
   Future<Attendance?> getByMemberAndDate(int memberId, String date) async {
@@ -74,6 +101,28 @@ class AttendanceRepository {
       where:
           'member_id = ? AND check_out_time IS NULL '
           'AND check_in_time IS NOT NULL AND check_in_time >= ?',
+      whereArgs: [memberId, now.subtract(window).toIso8601String()],
+      orderBy: 'check_in_time DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Attendance.fromMap(rows.first);
+  }
+
+  /// [findOpenSession] 과 같은 창에서 가장 최근 세션을 찾는다. **이미 닫힌 것도 포함한다.**
+  ///
+  /// 하원 QR 을 받았는데 닫을 세션이 없을 때, "등원 기록이 없다"와 "이미 하원했다"를
+  /// 구별하는 데 쓴다. 날짜로 찾으면 자정을 넘겨 하원한 사람이 재스캔할 때 어제 날짜에 있는
+  /// 자기 기록을 못 찾아 "등원 기록이 없습니다"를 보게 된다.
+  Future<Attendance?> findLatestSessionWithin(
+    int memberId, {
+    required DateTime now,
+    Duration window = const Duration(hours: 12),
+  }) async {
+    final rows = await db.query(
+      'attendance',
+      where:
+          'member_id = ? AND check_in_time IS NOT NULL AND check_in_time >= ?',
       whereArgs: [memberId, now.subtract(window).toIso8601String()],
       orderBy: 'check_in_time DESC',
       limit: 1,

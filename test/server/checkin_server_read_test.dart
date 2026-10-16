@@ -158,6 +158,47 @@ void main() {
     await h.close();
   });
 
+  test('확인 세션은 QR 이 갱신된 뒤에도 유효하다', () async {
+    final h = await _Harness.start();
+    await h.members.insert(const Member(name: '홍길동', classId: null));
+    final staleToken = h.qr.checkInToken;
+    final session = await h.issueSession(staleToken);
+
+    // 최초 1회 절차는 30초를 넘기므로, 제출 시점에는 QR 이 이미 두 번 돌아 있다.
+    h.qr.rotate();
+    h.qr.rotate();
+
+    final members = await http.get(h.uri('/api/members?session=$session'));
+    expect(members.statusCode, 200);
+    expect((jsonDecode(members.body) as List).single['name'], '홍길동');
+
+    // 반면 그 사이 죽은 토큰으로는 새 세션을 받을 수 없다.
+    final refused = await http.get(h.uri('/api/session?token=$staleToken'));
+    expect(refused.statusCode, 403);
+
+    await h.close();
+  });
+
+  test('GET /api/device-status 는 회원이 삭제된 바인딩을 미바인딩으로 본다', () async {
+    final h = await _Harness.start();
+    final memberId = await h.members.insert(
+      const Member(name: '홍길동', classId: null),
+    );
+    await h.devices.bind('device-1', memberId);
+    await h.members.delete(memberId);
+    final session = await h.issueSession(h.qr.checkInToken);
+
+    final response = await http.get(
+      h.uri('/api/device-status?deviceToken=device-1&session=$session'),
+    );
+    expect(response.statusCode, 200);
+    final body = jsonDecode(response.body) as Map;
+    expect(body['bound'], isFalse, reason: '"null 님"으로 렌더되면 안 된다');
+    expect(body['memberName'], isNull);
+
+    await h.close();
+  });
+
   test('GET /api/device-status 는 세션 없이는 403 이다', () async {
     final h = await _Harness.start();
 

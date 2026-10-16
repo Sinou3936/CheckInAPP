@@ -255,6 +255,152 @@ void main() {
     await db.close();
   });
 
+  test('insert 는 이미 있는 회원·날짜면 0 을 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+
+    const row = Attendance(
+      memberId: 1,
+      date: '2026-10-16',
+      checkInTime: '2026-10-16T15:00:00.000',
+      status: AttendanceStatus.present,
+    );
+    expect(await repo.insert(row), isNot(0));
+    expect(await repo.insert(row), 0);
+    await db.close();
+  });
+
+  test('closeSession 은 열린 세션을 닫고 1 을 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    final id = await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T15:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    expect(await repo.closeSession(id, '2026-10-16T18:00:00.000'), 1);
+    final stored = await repo.getByMemberAndDate(1, '2026-10-16');
+    expect(stored!.checkOutTime, '2026-10-16T18:00:00.000');
+    await db.close();
+  });
+
+  test('closeSession 은 이미 닫힌 세션에 0 을 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    final id = await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T15:00:00.000',
+        checkOutTime: '2026-10-16T18:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    expect(await repo.closeSession(id, '2026-10-16T19:00:00.000'), 0);
+    final stored = await repo.getByMemberAndDate(1, '2026-10-16');
+    expect(stored!.checkOutTime, '2026-10-16T18:00:00.000');
+    await db.close();
+  });
+
+  test('fillCheckIn 은 결석 행에 등원 시각을 채우고 1 을 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    final id = await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: null,
+        status: AttendanceStatus.absent,
+      ),
+    );
+
+    expect(
+      await repo.fillCheckIn(
+        id,
+        '2026-10-16T15:00:00.000',
+        AttendanceStatus.present,
+      ),
+      1,
+    );
+    final stored = await repo.getByMemberAndDate(1, '2026-10-16');
+    expect(stored!.checkInTime, '2026-10-16T15:00:00.000');
+    expect(stored.status, AttendanceStatus.present);
+    await db.close();
+  });
+
+  test('fillCheckIn 은 이미 등원 시각이 있으면 0 을 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    final id = await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T15:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    expect(
+      await repo.fillCheckIn(
+        id,
+        '2026-10-16T16:00:00.000',
+        AttendanceStatus.late,
+      ),
+      0,
+    );
+    final stored = await repo.getByMemberAndDate(1, '2026-10-16');
+    expect(stored!.checkInTime, '2026-10-16T15:00:00.000');
+    await db.close();
+  });
+
+  test('findLatestSessionWithin 은 이미 닫힌 세션도 돌려준다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T23:50:00.000',
+        checkOutTime: '2026-10-17T00:20:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    final latest = await repo.findLatestSessionWithin(
+      1,
+      now: DateTime(2026, 10, 17, 0, 22),
+    );
+    expect(latest!.date, '2026-10-16');
+    expect(latest.checkOutTime, '2026-10-17T00:20:00.000');
+    await db.close();
+  });
+
+  test('findLatestSessionWithin 은 창 밖의 세션은 돌려주지 않는다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T09:00:00.000',
+        checkOutTime: '2026-10-16T10:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    final latest = await repo.findLatestSessionWithin(
+      1,
+      now: DateTime(2026, 10, 16, 22, 0),
+    );
+    expect(latest, isNull);
+    await db.close();
+  });
+
   test('findUnclosedSessions 는 12시간이 지난 미하원 기록만 돌려준다', () async {
     final db = await openTestDatabase();
     final repo = AttendanceRepository(db);

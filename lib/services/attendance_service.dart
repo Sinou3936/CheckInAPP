@@ -76,7 +76,7 @@ class AttendanceService {
       memberId,
       dateKey,
     );
-    if (existing != null) {
+    if (existing != null && existing.checkInTime != null) {
       return CheckInOutcome(CheckInStatus.alreadyCheckedIn, existing);
     }
 
@@ -84,19 +84,28 @@ class AttendanceService {
     if (member == null) {
       throw ArgumentError('Unknown member id: $memberId');
     }
+    final status = await _statusFor(member.classId, checkInTime);
 
-    var status = AttendanceStatus.present;
-    if (member.classId != null) {
-      final classModel = await classRepository.getById(member.classId!);
-      if (classModel != null) {
-        status = determineStatus(
-          classModel.startDateTimeFor(checkInTime),
-          checkInTime,
-        );
-      }
+    // 자동 결석 처리된 행이 이미 있으면(등원 시각 없음) 등원으로 올린다 — 결석으로
+    // 찍혔다는 이유로 실제로 온 회원의 등원을 못 받으면, 그 회원은 하루 종일 결석이고
+    // 학부모 알림도 나가지 않는다.
+    if (existing != null) {
+      final filled = await attendanceRepository.fillCheckIn(
+        existing.id!,
+        checkInTime.toIso8601String(),
+        status,
+      );
+      final stored = await attendanceRepository.getByMemberAndDate(
+        memberId,
+        dateKey,
+      );
+      return CheckInOutcome(
+        filled == 0 ? CheckInStatus.alreadyCheckedIn : CheckInStatus.recorded,
+        stored!,
+      );
     }
 
-    await attendanceRepository.insert(
+    final insertedId = await attendanceRepository.insert(
       Attendance(
         memberId: memberId,
         date: dateKey,
@@ -108,7 +117,25 @@ class AttendanceService {
       memberId,
       dateKey,
     );
-    return CheckInOutcome(CheckInStatus.recorded, stored!);
+    // 0 이면 같은 순간의 다른 요청이 먼저 기록했다는 뜻이다 (UNIQUE 충돌로 무시됨).
+    // 두 요청이 모두 recorded 로 답하면 학부모에게 알림이 두 번 간다.
+    return CheckInOutcome(
+      insertedId == 0 ? CheckInStatus.alreadyCheckedIn : CheckInStatus.recorded,
+      stored!,
+    );
+  }
+
+  Future<AttendanceStatus> _statusFor(
+    int? classId,
+    DateTime checkInTime,
+  ) async {
+    if (classId == null) return AttendanceStatus.present;
+    final classModel = await classRepository.getById(classId);
+    if (classModel == null) return AttendanceStatus.present;
+    return determineStatus(
+      classModel.startDateTimeFor(checkInTime),
+      checkInTime,
+    );
   }
 
   /// 하원 QR 을 스캔했을 때.
@@ -124,29 +151,34 @@ class AttendanceService {
       window: checkOutWindow,
     );
     if (open != null) {
-      await attendanceRepository.update(
-        Attendance(
-          id: open.id,
-          memberId: open.memberId,
-          date: open.date,
-          checkInTime: open.checkInTime,
-          checkOutTime: checkOutTime.toIso8601String(),
-          status: open.status,
-        ),
+      final closed = await attendanceRepository.closeSession(
+        open.id!,
+        checkOutTime.toIso8601String(),
       );
       final stored = await attendanceRepository.getByMemberAndDate(
         memberId,
         open.date,
       );
-      return CheckOutOutcome(CheckOutStatus.recorded, stored);
+      // 0 이면 같은 순간의 다른 요청이 먼저 닫았다는 뜻이다. 두 요청이 모두 recorded 로
+      // 답하면 학부모에게 하원 알림이 두 번 간다.
+      return CheckOutOutcome(
+        closed == 0
+            ? CheckOutStatus.alreadyCheckedOut
+            : CheckOutStatus.recorded,
+        stored,
+      );
     }
 
-    final today = await attendanceRepository.getByMemberAndDate(
+    // 닫을 세션이 없다. "등원 기록이 없다"와 "이미 하원했다"를 **열린 세션과 같은 창에서**
+    // 구별한다 — 오늘 날짜로만 찾으면 자정을 넘겨 하원한 사람이 재스캔할 때 어제 날짜에
+    // 있는 자기 기록을 못 찾아 "등원 기록이 없습니다"를 보게 된다.
+    final latest = await attendanceRepository.findLatestSessionWithin(
       memberId,
-      formatDate(checkOutTime),
+      now: checkOutTime,
+      window: checkOutWindow,
     );
-    if (today != null && today.checkOutTime != null) {
-      return CheckOutOutcome(CheckOutStatus.alreadyCheckedOut, today);
+    if (latest != null && latest.checkOutTime != null) {
+      return CheckOutOutcome(CheckOutStatus.alreadyCheckedOut, latest);
     }
     return const CheckOutOutcome(CheckOutStatus.noOpenSession, null);
   }

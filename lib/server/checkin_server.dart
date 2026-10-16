@@ -49,7 +49,7 @@ class CheckInServer {
 
   /// 실제로 바인딩된 포트를 돌려준다 (`port: 0` 이면 임의 포트).
   Future<int> start({int port = 8080}) async {
-    _server = await shelf_io.serve(_router, InternetAddress.anyIPv4, port);
+    _server = await shelf_io.serve(_router.call, InternetAddress.anyIPv4, port);
     return _server!.port;
   }
 
@@ -106,11 +106,15 @@ class CheckInServer {
         : await deviceBindingRepository.getByToken(deviceToken);
     if (binding == null) return _json({'bound': false});
 
+    // 회원이 삭제됐는데 바인딩만 남은 경우를 미바인딩으로 본다 — 그러지 않으면 폰이
+    // "null 님"을 그리고, 그 기기는 본인 확인 흐름으로 되돌아갈 길이 없다.
     final member = await memberRepository.getById(binding.memberId);
+    if (member == null) return _json({'bound': false});
+
     return _json({
       'bound': true,
       'memberId': binding.memberId,
-      'memberName': member?.name,
+      'memberName': member.name,
     });
   }
 }

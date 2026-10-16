@@ -248,6 +248,101 @@ void main() {
     await h.close();
   });
 
+  test('자정을 넘겨 하원한 뒤 다시 하원 스캔하면 alreadyCheckedOut 이다', () async {
+    final h = await _Harness.open();
+    final memberId = await h.members.insert(
+      const Member(name: '홍길동', classId: null),
+    );
+
+    await h.service.recordCheckIn(
+      memberId,
+      now: DateTime(2026, 10, 16, 23, 50),
+    );
+    await h.service.recordCheckOut(
+      memberId,
+      now: DateTime(2026, 10, 17, 0, 20),
+    );
+
+    // 제대로 찍혔는지 못 믿고 2분 뒤 다시 찍는다. 세션은 어제 날짜 행에 있다.
+    final again = await h.service.recordCheckOut(
+      memberId,
+      now: DateTime(2026, 10, 17, 0, 22),
+    );
+
+    expect(again.status, CheckOutStatus.alreadyCheckedOut);
+    expect(again.attendance!.date, '2026-10-16');
+    await h.close();
+  });
+
+  test('자동 결석 처리된 뒤 실제로 등원하면 등원으로 올라간다', () async {
+    final h = await _Harness.open();
+    final classId = await h.classes.insert(
+      ClassModel(
+        name: '금요반',
+        startTime: '15:00',
+        operatingDays: {fridayWeekday},
+      ),
+    );
+    final memberId = await h.members.insert(
+      Member(name: '늦게온사람', classId: classId),
+    );
+
+    await h.service.markAbsentees(DateTime(2026, 10, 16));
+    final outcome = await h.service.recordCheckIn(
+      memberId,
+      now: DateTime(2026, 10, 16, 15, 3),
+    );
+
+    expect(outcome.status, CheckInStatus.recorded);
+    expect(outcome.attendance.status, AttendanceStatus.present);
+    expect(
+      outcome.attendance.checkInTime,
+      DateTime(2026, 10, 16, 15, 3).toIso8601String(),
+    );
+    await h.close();
+  });
+
+  test('같은 순간의 등원 스캔 두 건 중 하나만 recorded 다', () async {
+    final h = await _Harness.open();
+    final memberId = await h.members.insert(
+      const Member(name: '홍길동', classId: null),
+    );
+    final at = DateTime(2026, 10, 16, 15, 0);
+
+    final outcomes = await Future.wait([
+      h.service.recordCheckIn(memberId, now: at),
+      h.service.recordCheckIn(memberId, now: at),
+    ]);
+
+    expect(
+      outcomes.where((o) => o.status == CheckInStatus.recorded).length,
+      1,
+      reason: '두 건 다 recorded 면 학부모에게 알림이 두 번 간다',
+    );
+    await h.close();
+  });
+
+  test('같은 순간의 하원 스캔 두 건 중 하나만 recorded 다', () async {
+    final h = await _Harness.open();
+    final memberId = await h.members.insert(
+      const Member(name: '홍길동', classId: null),
+    );
+    await h.service.recordCheckIn(memberId, now: DateTime(2026, 10, 16, 15, 0));
+    final at = DateTime(2026, 10, 16, 18, 0);
+
+    final outcomes = await Future.wait([
+      h.service.recordCheckOut(memberId, now: at),
+      h.service.recordCheckOut(memberId, now: at),
+    ]);
+
+    expect(
+      outcomes.where((o) => o.status == CheckOutStatus.recorded).length,
+      1,
+      reason: '두 건 다 recorded 면 학부모에게 하원 알림이 두 번 간다',
+    );
+    await h.close();
+  });
+
   test('markAbsentees 는 운영 요일의 미체크 회원만 결석 처리한다', () async {
     final h = await _Harness.open();
     final fridayClassId = await h.classes.insert(

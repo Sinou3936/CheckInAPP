@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:checkin_app/models/class_model.dart';
 import 'package:checkin_app/repositories/class_repository.dart';
+import 'package:checkin_app/ui/hhmm.dart';
 
 /// DateTime.weekday 순서(1=월 … 7=일)와 맞춘다.
 const _dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
@@ -8,10 +9,6 @@ const _dayLabels = ['월', '화', '수', '목', '금', '토', '일'];
 const _nameError = '반 이름을 입력하세요';
 const _timeError = '시작 시간을 HH:mm 형식으로 입력하세요 (예: 15:00)';
 const _daysError = '운영 요일을 하나 이상 고르세요';
-
-/// 시작 시간은 `HH:mm` 두 자리씩이어야 한다. `startDateTimeFor` 가 `:` 로 쪼개 `int.parse`
-/// 하므로, 여기서 막지 않으면 결석 처리처럼 나중에 다른 곳에서 터진다.
-final _startTimePattern = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
 
 /// 운영 요일을 `월·수·금` 처럼 월→일 순서로 보여준다.
 String _daysLabel(Set<int> days) {
@@ -208,9 +205,7 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
                   helperText: 'HH:mm 형식 (예: 15:00)',
                 ),
                 validator: (value) =>
-                    _startTimePattern.hasMatch((value ?? '').trim())
-                    ? null
-                    : _timeError,
+                    isValidHhmm((value ?? '').trim()) ? null : _timeError,
               ),
               const SizedBox(height: 12),
               FormField<Set<int>>(

@@ -4,12 +4,10 @@ import 'package:checkin_app/models/member.dart';
 import 'package:checkin_app/repositories/attendance_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/ui/attendance_labels.dart';
+import 'package:checkin_app/ui/hhmm.dart';
 
 const _timeError = '시각을 HH:mm 형식으로 입력하세요 (예: 09:00)';
 const _orderError = '등원 시각 없이 하원 시각을 넣을 수 없습니다';
-
-/// 비우거나 `HH:mm` 두 자리씩인 시각만 받는다. `DateTime.parse` 전에 막아야 저장된 값이 깨지지 않는다.
-final _timePattern = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
 
 String _two(int n) => n.toString().padLeft(2, '0');
 
@@ -395,13 +393,13 @@ class _AttendanceEditDialogState extends State<_AttendanceEditDialog> {
 
   String? _checkInValidator(String? value) {
     final text = (value ?? '').trim();
-    return text.isEmpty || _timePattern.hasMatch(text) ? null : _timeError;
+    return text.isEmpty || isValidHhmm(text) ? null : _timeError;
   }
 
   String? _checkOutValidator(String? value) {
     final text = (value ?? '').trim();
     if (text.isEmpty) return null;
-    if (!_timePattern.hasMatch(text)) return _timeError;
+    if (!isValidHhmm(text)) return _timeError;
     if (_checkInController.text.trim().isEmpty) return _orderError;
     return null;
   }

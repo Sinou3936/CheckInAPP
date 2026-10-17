@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:checkin_app/models/attendance.dart';
 import 'package:checkin_app/models/member.dart';
+import 'package:checkin_app/models/notification_log.dart';
 import 'package:checkin_app/repositories/attendance_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/repositories/notification_log_repository.dart';
@@ -259,6 +260,9 @@ void main() {
   });
 
   testWidgets('보정으로 상태를 바꾸어도 학부모 알림 기록은 생기지 않는다', (tester) async {
+    // 등원 스캔으로 생긴 알림 한 건을 미리 심어 둔다. 0건에서 0건으로 끝나는 테스트는
+    // getRecent 가 항상 빈 값을 줘도 통과하므로 아무것도 막지 못한다. 심어 둔 1건이
+    // 그대로 1건이어야 "보정이 알림을 더하지 않았다"가 증명된다.
     final h = await pumpScreen(tester, (h) async {
       final id = await addMember(h, '김알림');
       await h.attendance.insert(
@@ -270,13 +274,20 @@ void main() {
           status: AttendanceStatus.present,
         ),
       );
+      await h.notifications.insert(
+        NotificationLog(
+          memberId: id,
+          occurredAt: DateTime(2020, 1, 10, 9, 0).toIso8601String(),
+          kind: NotificationKind.checkIn,
+          recipient: '010-1111-2222',
+        ),
+      );
       return id;
     });
     await selectMember(tester, '김알림');
-    expect(
-      (await tester.runAsync(() => h.notifications.getRecent()))!,
-      isEmpty,
-    );
+    final before = (await tester.runAsync(() => h.notifications.getRecent()))!;
+    expect(before, hasLength(1), reason: '심어 둔 알림이 조회되지 않으면 이 테스트는 무의미하다');
+    expect(before.single.kind, NotificationKind.checkIn);
 
     await openEdit(tester, '2020-01-10');
     await tester.tap(find.byKey(const Key('statusField')));
@@ -288,8 +299,54 @@ void main() {
     final saved = await savedRow(tester, h, '2020-01-10');
     expect(saved.status, AttendanceStatus.late);
 
-    final logs = (await tester.runAsync(() => h.notifications.getRecent()))!;
-    expect(logs, isEmpty);
+    // 보정은 학부모 알림을 내지 않는다 (스펙 81~83행). 관리자가 다음 날 아침에 어제 기록을
+    // 고쳤다고 학부모에게 "자녀가 나갔습니다"가 가면 이번 개정이 막으려 한 피해가 된다.
+    final after = (await tester.runAsync(() => h.notifications.getRecent()))!;
+    expect(after, hasLength(1));
+    expect(after.single.occurredAt, before.single.occurredAt);
+    expect(after.single.kind, NotificationKind.checkIn);
+  });
+
+  testWidgets('하원 시각을 보정해도 학부모 알림 기록은 생기지 않는다', (tester) async {
+    // 상태 변경보다 이쪽이 위험하다 — 하원 시각을 채우는 보정은 학생이 하원 QR 을 찍은 것과
+    // 결과가 같아 보이므로, 알림 경로에 얽히면 바로 거짓 알림이 나간다.
+    final h = await pumpScreen(tester, (h) async {
+      final id = await addMember(h, '김하원');
+      await h.attendance.insert(
+        Attendance(
+          memberId: id,
+          date: '2020-01-10',
+          checkInTime: DateTime(2020, 1, 10, 9, 0).toIso8601String(),
+          status: AttendanceStatus.present,
+        ),
+      );
+      await h.notifications.insert(
+        NotificationLog(
+          memberId: id,
+          occurredAt: DateTime(2020, 1, 10, 9, 0).toIso8601String(),
+          kind: NotificationKind.checkIn,
+          recipient: '010-1111-2222',
+        ),
+      );
+      return id;
+    });
+    await selectMember(tester, '김하원');
+    expect(
+      (await tester.runAsync(() => h.notifications.getRecent()))!,
+      hasLength(1),
+    );
+
+    await openEdit(tester, '2020-01-10');
+    expect(inRow(find.text('등원 09:00 · 하원 없음')), findsOneWidget);
+    await typeIn(tester, 'checkOutField', '18:00');
+    await save(tester, inRow(find.text('등원 09:00 · 하원 18:00')));
+
+    final saved = await savedRow(tester, h, '2020-01-10');
+    expect(saved.checkOutTime, isNotNull);
+
+    final after = (await tester.runAsync(() => h.notifications.getRecent()))!;
+    expect(after, hasLength(1), reason: '하원 보정이 알림을 추가했다');
+    expect(after.single.kind, NotificationKind.checkIn);
   });
 
   testWidgets('등원 후 12시간 이내의 열린 기록은 체류 중, 12시간이 지난 열린 기록은 미하원으로 구별한다', (

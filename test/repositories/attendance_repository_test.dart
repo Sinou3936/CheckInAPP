@@ -520,4 +520,80 @@ void main() {
     expect(both, isEmpty);
     await db.close();
   });
+
+  test('findSessionsWithin 은 창 안의 열린 세션과 닫힌 세션을 모두 돌려주고 결석 행은 뺀다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+
+    // now = 2026-10-17 09:00, 창 시작 = 2026-10-16 21:00
+    await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T23:50:00.000',
+        checkOutTime: '2026-10-17T00:20:00.000', // 자정을 넘겨 닫힌 세션: 창 안
+        status: AttendanceStatus.present,
+      ),
+    );
+    await repo.insert(
+      const Attendance(
+        memberId: 2,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T23:00:00.000', // 열린 세션: 창 안
+        status: AttendanceStatus.present,
+      ),
+    );
+    await repo.insert(
+      const Attendance(
+        memberId: 3,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T09:00:00.000',
+        checkOutTime: '2026-10-16T10:00:00.000', // 창 밖의 닫힌 세션
+        status: AttendanceStatus.present,
+      ),
+    );
+    await repo.insert(
+      const Attendance(
+        memberId: 4,
+        date: '2026-10-17',
+        checkInTime: null, // 결석 행
+        status: AttendanceStatus.absent,
+      ),
+    );
+
+    final sessions = await repo.findSessionsWithin(
+      now: DateTime(2026, 10, 17, 9, 0),
+    );
+    expect(sessions.map((a) => a.memberId).toList()..sort(), [1, 2]);
+    await db.close();
+  });
+
+  test('findSessionsWithin 의 창 경계: 정확히 12시간 전 등원은 들어오고 1ms 전은 빠진다', () async {
+    final db = await openTestDatabase();
+    final repo = AttendanceRepository(db);
+    final now = DateTime(2026, 10, 17, 12, 0);
+
+    await repo.insert(
+      const Attendance(
+        memberId: 1,
+        date: '2026-10-17',
+        checkInTime: '2026-10-17T00:00:00.000',
+        checkOutTime: '2026-10-17T01:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+    await repo.insert(
+      const Attendance(
+        memberId: 2,
+        date: '2026-10-16',
+        checkInTime: '2026-10-16T23:59:59.999',
+        checkOutTime: '2026-10-17T01:00:00.000',
+        status: AttendanceStatus.present,
+      ),
+    );
+
+    final sessions = await repo.findSessionsWithin(now: now);
+    expect(sessions.map((a) => a.memberId).toList(), [1]);
+    await db.close();
+  });
 }

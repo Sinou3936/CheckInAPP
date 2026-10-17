@@ -131,6 +131,24 @@ class AttendanceRepository {
     return Attendance.fromMap(rows.first);
   }
 
+  /// [findLatestSessionWithin] 의 목록 버전. 등원으로부터 [window] 이내의 세션을 **열린 것과
+  /// 닫힌 것 모두** 돌려준다. 날짜로 거르지 않는다.
+  ///
+  /// 자정을 넘겨 하원한 방문은 등원일 행에 닫혀 있으므로, 이 조회가 없으면 하원 순간 어떤 화면
+  /// 에서도 사라진다. 창 밖의 닫힌 세션은 쌓이지 않도록 돌려주지 않는다.
+  Future<List<Attendance>> findSessionsWithin({
+    required DateTime now,
+    Duration window = const Duration(hours: 12),
+  }) async {
+    final rows = await db.query(
+      'attendance',
+      where: 'check_in_time IS NOT NULL AND check_in_time >= ?',
+      whereArgs: [now.subtract(window).toIso8601String()],
+      orderBy: 'check_in_time',
+    );
+    return rows.map(Attendance.fromMap).toList();
+  }
+
   /// 아직 닫히지 않았고 등원으로부터 [window] 가 지나지 않은 세션 — "지금 체류 중".
   ///
   /// 날짜로 거르지 않는다. 자정을 넘긴 방문이 보이지 않으면 안 된다.

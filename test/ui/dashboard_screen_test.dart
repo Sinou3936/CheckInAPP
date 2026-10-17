@@ -28,6 +28,11 @@ const _checkOutUrl = 'http://192.168.0.10:8080/checkin?token=OUT-TOKEN';
 /// 테스트 중에 새로고침 타이머가 끼어들지 않도록 충분히 긴 간격을 쓴다.
 const _quietInterval = Duration(hours: 1);
 
+/// 기본 현재 시각. 실제 시계에 기대지 않도록 고정한다 — 12시간 경계 시나리오가 시계에 따라 깨지면 안 된다.
+final kNow = DateTime(2026, 10, 17, 12, 0);
+final kToday = DateTime(2026, 10, 17);
+final kYesterday = DateTime(2026, 10, 16);
+
 class DashboardHarness {
   final AttendanceRepository attendances;
   final MemberRepository members;
@@ -68,10 +73,12 @@ Future<DashboardHarness> pumpDashboard(
   WidgetTester tester, {
   Future<void> Function(DashboardHarness h)? seed,
   Duration refreshInterval = _quietInterval,
+  DateTime? now,
   String? checkIn = _checkInUrl,
   String? checkOut = _checkOutUrl,
   bool waitForLoad = true,
 }) async {
+  final clockNow = now ?? kNow;
   final db = (await tester.runAsync(openTestDatabase))!;
   addTearDown(() => db.close());
   final controller = _unstartedController(db);
@@ -91,6 +98,7 @@ Future<DashboardHarness> pumpDashboard(
         attendanceRepository: h.attendances,
         memberRepository: h.members,
         refreshInterval: refreshInterval,
+        clock: () => clockNow,
       ),
     ),
   );
@@ -116,32 +124,22 @@ String? cardUrl(WidgetTester tester, String cardKey) =>
 
 // ── 날짜·기록 헬퍼 ──────────────────────────────────────────────────────────
 
-/// 대시보드는 `DateTime.now()` 의 날짜 행을 읽는다. 테스트도 같은 기준으로 행을 만든다.
-String todayKey() => AttendanceService.formatDate(DateTime.now());
+/// [day] 의 [h]:[m] 을 저장 형식(ISO8601)으로 만든다.
+String atOn(DateTime day, int h, int m) =>
+    DateTime(day.year, day.month, day.day, h, m).toIso8601String();
 
-/// 오늘(+[dayOffset]일)의 [hour]:[minute] 를 저장 형식(ISO8601)으로 만든다.
-String at(int hour, int minute, {int dayOffset = 0}) {
-  final now = DateTime.now();
-  return DateTime(
-    now.year,
-    now.month,
-    now.day + dayOffset,
-    hour,
-    minute,
-  ).toIso8601String();
-}
-
-/// 오늘 날짜 행을 하나 넣는다. 등원일의 행이 곧 그 방문의 행이다.
-Future<void> recordToday(
+/// [day] 날짜 행을 하나 넣는다. 등원일의 행이 곧 그 방문의 행이다.
+Future<void> recordOn(
   DashboardHarness h,
-  int memberId, {
+  int memberId,
+  DateTime day, {
   String? checkIn,
   String? checkOut,
   AttendanceStatus status = AttendanceStatus.present,
 }) => h.attendances.insert(
   Attendance(
     memberId: memberId,
-    date: todayKey(),
+    date: AttendanceService.formatDate(day),
     checkInTime: checkIn,
     checkOutTime: checkOut,
     status: status,
@@ -216,71 +214,106 @@ void main() {
     });
   });
 
-  group('정정 B — 오늘 현황을 등원·하원·미하원으로 보여준다', () {
-    testWidgets('등원만 한 회원은 미하원으로 보이고 미하원 수에 든다', (tester) async {
+  group('정정 B — 오늘 현황을 등원·하원·체류·미하원으로 보여준다', () {
+    testWidgets('등원 후 1시간이면 체류 중이고 미하원이 아니다', (tester) async {
       await pumpDashboard(
         tester,
         seed: (h) async {
           final id = await h.members.insert(const Member(name: '홍길동'));
-          await recordToday(h, id, checkIn: at(9, 5));
+          await recordOn(h, id, kToday, checkIn: atOn(kToday, 11, 0));
         },
       );
-      await waitForSummary(tester, '등원 1 · 하원 0 · 미하원 1');
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
 
-      expect(inRow(find.text('홍길동')), findsOneWidget);
-      expect(inRow(find.text('등원 09:05')), findsOneWidget);
-      expect(inRow(find.text('미하원')), findsOneWidget);
-    });
-
-    testWidgets('등원과 하원을 모두 한 회원은 하원 시각이 보이고 미하원 수에 들지 않는다', (tester) async {
-      await pumpDashboard(
-        tester,
-        seed: (h) async {
-          final id = await h.members.insert(const Member(name: '홍길동'));
-          await recordToday(h, id, checkIn: at(9, 5), checkOut: at(10, 30));
-        },
-      );
-      await waitForSummary(tester, '등원 1 · 하원 1 · 미하원 0');
-
-      expect(inRow(find.text('하원 10:30')), findsOneWidget);
+      expect(inRow(find.text('등원 11:00')), findsOneWidget);
+      expect(inRow(find.text('체류 중')), findsOneWidget);
       expect(inRow(find.text('미하원')), findsNothing);
     });
 
-    testWidgets('자동 결석 행은 등원 수에 들지 않는다', (tester) async {
+    testWidgets('등원 후 13시간이면 미하원이고 체류 중이 아니다', (tester) async {
+      await pumpDashboard(
+        tester,
+        seed: (h) async {
+          final id = await h.members.insert(const Member(name: '홍길동'));
+          // 현재 12:00 기준 13시간 전은 어제 23:00.
+          await recordOn(h, id, kYesterday, checkIn: atOn(kYesterday, 23, 0));
+        },
+      );
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 0 · 미하원 1');
+
+      expect(inRow(find.text('미하원')), findsOneWidget);
+      expect(inRow(find.text('체류 중')), findsNothing);
+      expect(inRow(find.text('2026-10-16')), findsOneWidget);
+    });
+
+    testWidgets('등원과 하원을 모두 한 회원은 하원 시각이 보이고 체류·미하원 어디에도 들지 않는다', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        seed: (h) async {
+          final id = await h.members.insert(const Member(name: '홍길동'));
+          await recordOn(
+            h,
+            id,
+            kToday,
+            checkIn: atOn(kToday, 9, 5),
+            checkOut: atOn(kToday, 10, 30),
+          );
+        },
+      );
+      await waitForSummary(tester, '등원 1 · 하원 1 · 체류 중 0 · 미하원 0');
+
+      expect(inRow(find.text('하원 10:30')), findsOneWidget);
+      expect(inRow(find.text('체류 중')), findsNothing);
+      expect(inRow(find.text('미하원')), findsNothing);
+    });
+
+    testWidgets('자동 결석 행은 등원 수에도 체류·미하원에도 들지 않는다', (tester) async {
       await pumpDashboard(
         tester,
         seed: (h) async {
           final present = await h.members.insert(const Member(name: '홍길동'));
-          await recordToday(h, present, checkIn: at(9, 5));
+          await recordOn(h, present, kToday, checkIn: atOn(kToday, 11, 0));
           final absent = await h.members.insert(const Member(name: '이영희'));
-          await recordToday(h, absent, status: AttendanceStatus.absent);
+          await recordOn(h, absent, kToday, status: AttendanceStatus.absent);
         },
       );
-      await waitForSummary(tester, '등원 1 · 하원 0 · 미하원 1');
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
 
-      expect(inRow(find.text('이영희')), findsOneWidget);
       expect(inRow(find.text('등원 기록 없음')), findsOneWidget);
     });
 
-    testWidgets('자정을 넘겨 하원해도 등원한 날 행의 하원으로 보이고 미하원이 아니다', (tester) async {
-      // 등원은 오늘 23:50, 하원은 내일 00:20. 행의 date 는 등원한 날(오늘)이다.
+    testWidgets('어제 23:50 에 등원해 아직 안 나간 사람은 00:30 에도 체류 중으로 보이고 날짜가 함께 보인다', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        now: DateTime(2026, 10, 17, 0, 30),
+        seed: (h) async {
+          final id = await h.members.insert(const Member(name: '홍길동'));
+          await recordOn(h, id, kYesterday, checkIn: atOn(kYesterday, 23, 50));
+        },
+      );
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
+
+      expect(inRow(find.text('홍길동')), findsOneWidget);
+      expect(inRow(find.text('2026-10-16')), findsOneWidget);
+      expect(inRow(find.text('등원 23:50')), findsOneWidget);
+      expect(inRow(find.text('체류 중')), findsOneWidget);
+    });
+
+    testWidgets('오늘 행이면서 체류 중인 행은 목록에 한 번만 나온다', (tester) async {
       await pumpDashboard(
         tester,
         seed: (h) async {
           final id = await h.members.insert(const Member(name: '홍길동'));
-          await recordToday(
-            h,
-            id,
-            checkIn: at(23, 50),
-            checkOut: at(0, 20, dayOffset: 1),
-          );
+          await recordOn(h, id, kToday, checkIn: atOn(kToday, 11, 0));
         },
       );
-      await waitForSummary(tester, '등원 1 · 하원 1 · 미하원 0');
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
 
-      expect(inRow(find.text('등원 23:50')), findsOneWidget);
-      expect(inRow(find.text('하원 00:20')), findsOneWidget);
-      expect(inRow(find.text('미하원')), findsNothing);
+      expect(find.byType(ListTile), findsOneWidget);
     });
   });
 
@@ -290,19 +323,20 @@ void main() {
         tester,
         seed: (h) async {
           final a = await h.members.insert(const Member(name: '홍길동'));
-          await recordToday(h, a, checkIn: at(9, 5));
+          await recordOn(h, a, kToday, checkIn: atOn(kToday, 9, 5));
           final b = await h.members.insert(const Member(name: '김지각'));
-          await recordToday(
+          await recordOn(
             h,
             b,
-            checkIn: at(9, 30),
+            kToday,
+            checkIn: atOn(kToday, 9, 30),
             status: AttendanceStatus.late,
           );
           final c = await h.members.insert(const Member(name: '이영희'));
-          await recordToday(h, c, status: AttendanceStatus.absent);
+          await recordOn(h, c, kToday, status: AttendanceStatus.absent);
         },
       );
-      await waitForSummary(tester, '등원 2 · 하원 0 · 미하원 2');
+      await waitForSummary(tester, '등원 2 · 하원 0 · 체류 중 2 · 미하원 0');
 
       expect(inRow(find.text('출석')), findsOneWidget);
       expect(inRow(find.text('지각')), findsOneWidget);
@@ -318,9 +352,9 @@ void main() {
       await pumpDashboard(tester, waitForLoad: false);
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('등원 0 · 하원 0 · 미하원 0'), findsNothing);
+      expect(find.text('등원 0 · 하원 0 · 체류 중 0 · 미하원 0'), findsNothing);
 
-      await waitForSummary(tester, '등원 0 · 하원 0 · 미하원 0');
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
@@ -329,16 +363,16 @@ void main() {
         tester,
         refreshInterval: const Duration(milliseconds: 50),
       );
-      await waitForSummary(tester, '등원 0 · 하원 0 · 미하원 0');
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
 
       await tester.runAsync(() async {
         final id = await h.members.insert(const Member(name: '홍길동'));
-        await recordToday(h, id, checkIn: at(9, 5));
+        await recordOn(h, id, kToday, checkIn: atOn(kToday, 11, 0));
       });
 
       await pumpUntil(tester, () => shown(inRow(find.text('홍길동'))));
-      expect(inRow(find.text('등원 09:05')), findsOneWidget);
-      expect(find.text('등원 1 · 하원 0 · 미하원 1'), findsOneWidget);
+      expect(inRow(find.text('등원 11:00')), findsOneWidget);
+      expect(find.text('등원 1 · 하원 0 · 체류 중 1 · 미하원 0'), findsOneWidget);
     });
 
     testWidgets('화면을 내리면 새로고침 타이머도 취소된다', (tester) async {
@@ -346,7 +380,7 @@ void main() {
         tester,
         refreshInterval: const Duration(milliseconds: 50),
       );
-      await waitForSummary(tester, '등원 0 · 하원 0 · 미하원 0');
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
 
       // 타이머가 남아 있으면 테스트 종료 시 "pending timer" 로 실패한다.
       await tester.pumpWidget(const SizedBox());

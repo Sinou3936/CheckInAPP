@@ -131,6 +131,26 @@ class AttendanceRepository {
     return Attendance.fromMap(rows.first);
   }
 
+  /// 아직 닫히지 않았고 등원으로부터 [window] 가 지나지 않은 세션 — "지금 체류 중".
+  ///
+  /// 날짜로 거르지 않는다. 자정을 넘긴 방문이 보이지 않으면 안 된다.
+  /// [findUnclosedSessions] 와 같은 기준 시각을 쓰되 비교 방향이 반대다(`>=` 대 `<`),
+  /// 그래서 열린 세션은 두 메서드 중 정확히 하나에만 나온다.
+  Future<List<Attendance>> findOpenSessionsWithin({
+    required DateTime now,
+    Duration window = const Duration(hours: 12),
+  }) async {
+    final rows = await db.query(
+      'attendance',
+      where:
+          'check_out_time IS NULL AND check_in_time IS NOT NULL '
+          'AND check_in_time >= ?',
+      whereArgs: [now.subtract(window).toIso8601String()],
+      orderBy: 'check_in_time',
+    );
+    return rows.map(Attendance.fromMap).toList();
+  }
+
   /// 관리자가 보정해야 할 "미하원" 목록.
   ///
   /// 등원 시각이 있고 하원 시각이 비어 있으며 등원으로부터 `window` 가 지난 기록.

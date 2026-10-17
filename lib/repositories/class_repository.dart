@@ -15,8 +15,17 @@ class ClassRepository {
     whereArgs: [classModel.id],
   );
 
-  Future<void> delete(int id) =>
-      db.delete('classes', where: 'id = ?', whereArgs: [id]);
+  /// 반을 지우면서 소속 회원의 반 지정을 null 로 비운다. 회원 자체는 지우지 않는다.
+  /// `PRAGMA foreign_keys` 를 켜지 않으므로 정리를 여기서 직접 한다.
+  Future<void> delete(int id) => db.transaction((txn) async {
+    await txn.update(
+      'members',
+      {'class_id': null},
+      where: 'class_id = ?',
+      whereArgs: [id],
+    );
+    await txn.delete('classes', where: 'id = ?', whereArgs: [id]);
+  });
 
   Future<ClassModel?> getById(int id) async {
     final rows = await db.query('classes', where: 'id = ?', whereArgs: [id]);

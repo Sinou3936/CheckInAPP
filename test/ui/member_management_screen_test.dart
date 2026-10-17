@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:checkin_app/models/class_model.dart';
+import 'package:checkin_app/models/member.dart';
 import 'package:checkin_app/repositories/class_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/ui/screens/member_management_screen.dart';
@@ -8,13 +9,26 @@ import 'package:checkin_app/ui/screens/member_management_screen.dart';
 import '../helpers/test_db.dart';
 
 /// testWidgets 의 fake-async zone 안에서는 sqflite_ffi 의 실제 비동기 호출이 pump 만으로
-/// 끝나지 않는다. 실제 비동기를 한 번 흘려보낸 뒤 프레임을 그린다.
-Future<void> settle(WidgetTester tester) async {
-  await tester.runAsync(
-    () => Future<void>.delayed(const Duration(milliseconds: 300)),
-  );
-  await tester.pumpAndSettle();
+/// 끝나지 않는다. 실제 비동기를 조금씩 흘려보내고 프레임을 그리기를 번갈아 하면서,
+/// [done] 이 참이 되면 즉시 빠져나온다. 고정 시간을 기다리지 않는다.
+Future<void> pumpUntil(WidgetTester tester, bool Function() done) async {
+  for (var i = 0; i < 500 && !done(); i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    // 0 초 pump 는 다이얼로그 닫힘 애니메이션을 진행시키지 못하므로 한 프레임만큼 시간을 흘린다.
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(done(), isTrue, reason: '기다린 조건이 만족되지 않았다');
 }
+
+bool shown(Finder finder) => finder.evaluate().isNotEmpty;
+
+bool absent(Finder finder) => finder.evaluate().isEmpty;
+
+/// 목록 행 안에서만 찾는다. 열린 다이얼로그의 입력칸이나 안내문과 섞이지 않게 한다.
+Finder inRow(Finder matching) =>
+    find.descendant(of: find.byType(ListTile), matching: matching);
 
 class MemberHarness {
   final MemberRepository members;
@@ -22,10 +36,14 @@ class MemberHarness {
   MemberHarness(this.members, this.classes);
 }
 
-Future<MemberHarness> pumpScreen(WidgetTester tester) async {
+Future<MemberHarness> pumpScreen(
+  WidgetTester tester, {
+  Future<void> Function(MemberHarness h)? seed,
+}) async {
   final db = (await tester.runAsync(openTestDatabase))!;
   addTearDown(() => db.close());
   final harness = MemberHarness(MemberRepository(db), ClassRepository(db));
+  if (seed != null) await tester.runAsync(() => seed(harness));
   await tester.pumpWidget(
     MaterialApp(
       home: MemberManagementScreen(
@@ -34,7 +52,7 @@ Future<MemberHarness> pumpScreen(WidgetTester tester) async {
       ),
     ),
   );
-  await settle(tester);
+  await pumpUntil(tester, () => absent(find.byType(CircularProgressIndicator)));
   return harness;
 }
 
@@ -43,20 +61,48 @@ Future<void> openAddDialog(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Future<void> save(WidgetTester tester) async {
+/// 저장은 다이얼로그를 닫은 뒤에야 DB 쓰기와 목록 재조회를 시작한다. 그래서 다이얼로그가
+/// 닫힌 것만으로는 끝난 것이 아니고, [listed] 가 보여야 재조회까지 끝난 것이다.
+Future<void> save(WidgetTester tester, Finder listed) async {
   await tester.tap(find.text('저장'));
-  await settle(tester);
+  await pumpUntil(
+    tester,
+    () => absent(find.byType(AlertDialog)) && shown(listed),
+  );
+  expect(find.byType(AlertDialog), findsNothing);
 }
 
 void main() {
+  testWidgets('로드 전에는 로딩 표시만 보이고 빈 목록 안내는 보이지 않는다', (tester) async {
+    final db = (await tester.runAsync(openTestDatabase))!;
+    addTearDown(() => db.close());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MemberManagementScreen(
+          memberRepository: MemberRepository(db),
+          classRepository: ClassRepository(db),
+        ),
+      ),
+    );
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('등록된 회원이 없습니다.'), findsNothing);
+
+    await pumpUntil(
+      tester,
+      () => absent(find.byType(CircularProgressIndicator)),
+    );
+    expect(find.text('등록된 회원이 없습니다.'), findsOneWidget);
+  });
+
   testWidgets('회원을 추가하면 목록에 나온다', (tester) async {
     await pumpScreen(tester);
 
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
-    await save(tester);
+    await save(tester, inRow(find.text('홍길동')));
 
-    expect(find.text('홍길동'), findsOneWidget);
+    expect(inRow(find.text('홍길동')), findsOneWidget);
   });
 
   testWidgets('학부모 연락처를 입력하면 저장되고 목록에 보인다', (tester) async {
@@ -68,9 +114,9 @@ void main() {
       find.byKey(const Key('memberContactField')),
       '010-1111-2222',
     );
-    await save(tester);
+    await save(tester, inRow(find.textContaining('010-1111-2222')));
 
-    expect(find.textContaining('010-1111-2222'), findsOneWidget);
+    expect(inRow(find.textContaining('010-1111-2222')), findsOneWidget);
     final saved = (await tester.runAsync(h.members.getAll))!;
     expect(saved.single.parentContact, '010-1111-2222');
   });
@@ -80,9 +126,9 @@ void main() {
 
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
-    await save(tester);
+    await save(tester, inRow(find.textContaining('관리자 대행')));
 
-    expect(find.textContaining('관리자 대행'), findsOneWidget);
+    expect(inRow(find.textContaining('관리자 대행')), findsOneWidget);
   });
 
   testWidgets('연락처가 있는 회원에는 관리자 대행 안내가 붙지 않는다', (tester) async {
@@ -94,9 +140,21 @@ void main() {
       find.byKey(const Key('memberContactField')),
       '010-1111-2222',
     );
-    await save(tester);
+    await save(tester, inRow(find.text('홍길동')));
 
-    expect(find.textContaining('관리자 대행'), findsNothing);
+    expect(inRow(find.textContaining('관리자 대행')), findsNothing);
+  });
+
+  testWidgets('숫자가 4자리 미만인 연락처는 연락처를 보여주면서 대행 안내도 붙는다', (tester) async {
+    await pumpScreen(
+      tester,
+      seed: (h) async {
+        await h.members.insert(const Member(name: '홍길동', parentContact: '미정'));
+      },
+    );
+
+    expect(inRow(find.textContaining('학부모 연락처: 미정')), findsOneWidget);
+    expect(inRow(find.textContaining('관리자 대행')), findsOneWidget);
   });
 
   testWidgets('연락처를 비워 저장하면 빈 문자열이 아니라 null 이 들어간다', (tester) async {
@@ -104,7 +162,7 @@ void main() {
 
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
-    await save(tester);
+    await save(tester, inRow(find.textContaining('관리자 대행')));
 
     final saved = (await tester.runAsync(h.members.getAll))!;
     expect(saved.single.parentContact, isNull);
@@ -116,10 +174,23 @@ void main() {
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
     await tester.enterText(find.byKey(const Key('memberContactField')), '   ');
-    await save(tester);
+    await save(tester, inRow(find.textContaining('관리자 대행')));
 
     final saved = (await tester.runAsync(h.members.getAll))!;
     expect(saved.single.parentContact, isNull);
+  });
+
+  testWidgets('이름이 비어 있으면 저장되지 않고 다이얼로그가 남는다', (tester) async {
+    final h = await pumpScreen(tester);
+
+    await openAddDialog(tester);
+    await tester.enterText(find.byKey(const Key('memberNameField')), '   ');
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('이름을 입력하세요'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect((await tester.runAsync(h.members.getAll))!, isEmpty);
   });
 
   testWidgets('수정에서 연락처를 지우면 null 로 돌아가고 안내가 다시 붙는다', (tester) async {
@@ -131,36 +202,28 @@ void main() {
       find.byKey(const Key('memberContactField')),
       '010-1111-2222',
     );
-    await save(tester);
+    await save(tester, inRow(find.textContaining('010-1111-2222')));
 
     await tester.tap(find.byTooltip('수정'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('memberContactField')), '');
-    await save(tester);
+    await save(tester, inRow(find.textContaining('관리자 대행')));
 
     final saved = (await tester.runAsync(h.members.getAll))!;
     expect(saved.single.parentContact, isNull);
-    expect(find.textContaining('관리자 대행'), findsOneWidget);
+    expect(inRow(find.textContaining('관리자 대행')), findsOneWidget);
   });
 
   testWidgets('회원에 반을 지정할 수 있다', (tester) async {
-    final h = await pumpScreen(tester);
-    final classId = (await tester.runAsync(
-      () => h.classes.insert(
-        const ClassModel(name: '국어반', startTime: '15:00', operatingDays: {1}),
-      ),
-    ))!;
-    // 반은 화면이 뜰 때 읽으므로, 반을 만든 뒤 화면을 다시 띄운다.
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MemberManagementScreen(
-          memberRepository: h.members,
-          classRepository: h.classes,
-        ),
-      ),
+    late int classId;
+    final h = await pumpScreen(
+      tester,
+      seed: (h) async {
+        classId = await h.classes.insert(
+          const ClassModel(name: '국어반', startTime: '15:00', operatingDays: {1}),
+        );
+      },
     );
-    await settle(tester);
 
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
@@ -168,11 +231,48 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('국어반').last);
     await tester.pumpAndSettle();
-    await save(tester);
+    await save(tester, inRow(find.textContaining('국어반')));
 
     final saved = (await tester.runAsync(h.members.getAll))!;
     expect(saved.single.classId, classId);
-    expect(find.textContaining('국어반'), findsOneWidget);
+  });
+
+  testWidgets('반이 삭제된 회원의 수정 다이얼로그도 예외 없이 열린다', (tester) async {
+    await pumpScreen(
+      tester,
+      seed: (h) async {
+        await h.members.insert(const Member(name: '홍길동', classId: 999));
+      },
+    );
+
+    await tester.tap(find.byTooltip('수정'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('memberClassField')),
+        matching: find.text('반 없음'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('반이 사라진 회원을 저장하면 classId 가 null 로 정규화된다', (tester) async {
+    final h = await pumpScreen(
+      tester,
+      seed: (h) async {
+        await h.members.insert(const Member(name: '홍길동', classId: 999));
+      },
+    );
+
+    await tester.tap(find.byTooltip('수정'));
+    await tester.pumpAndSettle();
+    await save(tester, inRow(find.textContaining('반: 반 없음')));
+
+    final saved = (await tester.runAsync(h.members.getAll))!;
+    expect(saved.single.classId, isNull);
   });
 
   testWidgets('회원을 삭제하면 목록에서 사라진다', (tester) async {
@@ -180,15 +280,35 @@ void main() {
 
     await openAddDialog(tester);
     await tester.enterText(find.byKey(const Key('memberNameField')), '홍길동');
-    await save(tester);
-    expect(find.text('홍길동'), findsOneWidget);
+    await save(tester, inRow(find.text('홍길동')));
+    expect(inRow(find.text('홍길동')), findsOneWidget);
 
     await tester.tap(find.byTooltip('삭제'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('삭제').last);
-    await settle(tester);
+    await pumpUntil(
+      tester,
+      () => absent(find.byType(AlertDialog)) && absent(inRow(find.text('홍길동'))),
+    );
 
-    expect(find.text('홍길동'), findsNothing);
+    expect(inRow(find.text('홍길동')), findsNothing);
     expect((await tester.runAsync(h.members.getAll))!, isEmpty);
+  });
+
+  testWidgets('삭제 확인에서 취소하면 회원이 남는다', (tester) async {
+    final h = await pumpScreen(
+      tester,
+      seed: (h) async {
+        await h.members.insert(const Member(name: '홍길동'));
+      },
+    );
+
+    await tester.tap(find.byTooltip('삭제'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('취소'));
+    await pumpUntil(tester, () => absent(find.byType(AlertDialog)));
+
+    expect(inRow(find.text('홍길동')), findsOneWidget);
+    expect((await tester.runAsync(h.members.getAll))!, hasLength(1));
   });
 }

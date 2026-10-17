@@ -204,13 +204,12 @@ class CheckInServer {
       return _json({'error': 'unknown_member'}, statusCode: 400);
     }
 
-    // 숫자만 남겨 비교한다 — 관리자가 하이픈 유무 어느 쪽으로 입력했든 같게 판정되어야 한다.
-    // 4자리가 안 되는 연락처는 확인 수단이 못 되므로 연락처가 없는 것과 같이 다룬다.
-    final digits = member.parentContact?.replaceAll(RegExp(r'\D'), '') ?? '';
-    if (digits.length < 4) {
+    // 자력 바인딩 가능 여부의 판정은 Member 가 한다 — 화면도 같은 판정을 쓴다.
+    if (!member.canSelfBind) {
       return _json({'error': 'verification_unavailable'}, statusCode: 403);
     }
 
+    final digits = member.parentContactDigits;
     if (body['contactLast4'] != digits.substring(digits.length - 4)) {
       bindAttemptThrottle.recordFailure(
         deviceToken: deviceToken,

@@ -32,6 +32,41 @@ void main() {
     expect(member.copyWith(name: '김철수').parentContact, '010-0000-0000');
   });
 
+  group('Member.canSelfBind (학부모 연락처 숫자 4자리 이상이면 자력 바인딩 가능)', () {
+    test('연락처가 없으면 자력 바인딩할 수 없다', () {
+      const member = Member(id: 1, name: '홍길동');
+      expect(member.parentContactDigits, '');
+      expect(member.canSelfBind, isFalse);
+    });
+
+    test('숫자가 없는 연락처는 자력 바인딩할 수 없다', () {
+      const member = Member(id: 1, name: '홍길동', parentContact: '미정');
+      expect(member.parentContactDigits, '');
+      expect(member.canSelfBind, isFalse);
+    });
+
+    test('숫자가 3자리뿐이면 자력 바인딩할 수 없다', () {
+      const member = Member(id: 1, name: '홍길동', parentContact: '12-3');
+      expect(member.parentContactDigits, '123');
+      expect(member.canSelfBind, isFalse);
+    });
+
+    test('숫자 5자리(010-12)는 뒷 4자리 확인이 가능하므로 자력 바인딩할 수 있다', () {
+      const member = Member(id: 1, name: '홍길동', parentContact: '010-12');
+      expect(member.parentContactDigits, '01012');
+      expect(member.canSelfBind, isTrue);
+    });
+
+    test('하이픈 유무와 관계없이 같은 숫자로 판정된다', () {
+      const hyphen = Member(id: 1, name: '홍길동', parentContact: '010-1111-2222');
+      const plain = Member(id: 2, name: '김철수', parentContact: '01011112222');
+      expect(hyphen.parentContactDigits, '01011112222');
+      expect(plain.parentContactDigits, '01011112222');
+      expect(hyphen.canSelfBind, isTrue);
+      expect(plain.canSelfBind, isTrue);
+    });
+  });
+
   test('ClassModel round-trips and reports operating days correctly', () {
     final classModel = ClassModel(
       id: 1,

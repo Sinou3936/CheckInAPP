@@ -8,6 +8,15 @@ class Member {
 
   const Member({this.id, required this.name, this.classId, this.parentContact});
 
+  /// 연락처에서 숫자만 남긴 것. 하이픈 유무와 관계없이 같은 값이 된다.
+  String get parentContactDigits =>
+      parentContact?.replaceAll(RegExp(r'\D'), '') ?? '';
+
+  /// 최초 기기 바인딩의 본인 확인은 학부모 연락처 **숫자 뒷 4자리**로 한다.
+  /// 숫자가 4자리에 못 미치면 확인 수단이 못 되므로 그 회원은 폰을 혼자 묶을 수 없고
+  /// 관리자가 대행해야 한다. 화면과 서버가 같은 판정을 쓰도록 여기에 둔다.
+  bool get canSelfBind => parentContactDigits.length >= 4;
+
   Map<String, Object?> toMap() => {
     if (id != null) 'id': id,
     'name': name,

@@ -22,6 +22,9 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
   List<Member> _members = const [];
   List<ClassModel> _classes = const [];
 
+  /// 첫 로드가 끝나기 전에는 빈 안내 대신 로딩 표시를 그린다.
+  bool _loaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +38,7 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
     setState(() {
       _members = members;
       _classes = classes;
+      _loaded = true;
     });
   }
 
@@ -88,7 +92,9 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('회원 관리')),
-      body: _members.isEmpty
+      body: !_loaded
+          ? const Center(child: CircularProgressIndicator())
+          : _members.isEmpty
           ? const Center(child: Text('등록된 회원이 없습니다.'))
           : ListView(
               children: [
@@ -99,14 +105,17 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('반: ${_classNameOf(m.classId)}'),
-                        m.parentContact == null
-                            ? Text(
-                                '연락처 없음 — 기기 바인딩은 관리자 대행',
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                ),
-                              )
-                            : Text('학부모 연락처: ${m.parentContact}'),
+                        if (m.parentContact != null)
+                          Text('학부모 연락처: ${m.parentContact}'),
+                        if (!m.canSelfBind)
+                          Text(
+                            m.parentContact == null
+                                ? '연락처 없음 — 기기 바인딩은 관리자 대행'
+                                : '연락처 숫자가 4자리 미만 — 기기 바인딩은 관리자 대행',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
                       ],
                     ),
                     trailing: Row(
@@ -161,7 +170,10 @@ class _MemberFormDialogState extends State<_MemberFormDialog> {
     _contactController = TextEditingController(
       text: existing?.parentContact ?? '',
     );
-    _classId = existing?.classId;
+    // 삭제된 반을 가리키는 회원은 목록에서도 "반 없음"으로 보이므로, 드롭다운도 그렇게 맞춘다.
+    // 드롭다운은 value 와 같은 item 이 없으면 assert 로 깨진다.
+    final classId = existing?.classId;
+    _classId = widget.classes.any((c) => c.id == classId) ? classId : null;
   }
 
   @override

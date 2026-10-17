@@ -9,11 +9,14 @@ import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
 import 'package:checkin_app/ui/attendance_labels.dart';
 
+/// 과거 날짜에서 이어진 방문 구역의 제목.
+const _previousSectionTitle = '이전 날짜에서 이어진 방문';
+
 /// 카운터 화면의 실시간 현황. 등원 QR 과 하원 QR 을 라벨과 함께 보여주고, 지금 체류 중인 사람과
 /// 보정이 필요한 미하원 기록을 보여준다.
 ///
-/// 목록은 오늘 행과 과거 세션의 합집합이다. 자정을 넘긴 체류가 날짜 때문에 사라지지 않도록
-/// 날짜로 거르지 않는 세션 조회를 함께 쓴다.
+/// 요약 숫자는 오늘 행만 센다. 과거 날짜에서 이어진 방문(자정을 넘긴 체류·하원·미하원)은
+/// 목록 아래 구역에 따로 보여, "오늘 등원 N" 이 과거 방문에 오염되지 않게 한다.
 class DashboardScreen extends StatefulWidget {
   final CheckInAppController controller;
   final AttendanceRepository attendanceRepository;
@@ -39,7 +42,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  List<_TodayRow> _rows = const [];
+  List<_DashboardRow> _rows = const [];
 
   /// 첫 로드가 끝나기 전에는 요약을 그리지 않는다 — 아직 읽지 않은 0 을 보여주면 안 된다.
   bool _loaded = false;
@@ -66,24 +69,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final todayRecords = await repo.getByDate(today);
     final openRecords = await repo.findOpenSessionsWithin(now: now);
+    final sessionRecords = await repo.findSessionsWithin(now: now);
     final overdueRecords = await repo.findUnclosedSessions(now: now);
+    final openIds = {for (final a in openRecords) a.id};
     final overdueIds = {for (final a in overdueRecords) a.id};
 
-    // 세 질의가 같은 행을 돌려줄 수 있으므로 id 로 한 번만 담는다. 오늘 행이 먼저 들어간다.
+    // 여러 질의가 같은 행을 돌려줄 수 있으므로 id 로 한 번만 담는다. 오늘 행이 먼저 들어간다.
     final byId = <int, Attendance>{};
-    for (final a in [...todayRecords, ...openRecords, ...overdueRecords]) {
+    for (final a in [
+      ...todayRecords,
+      ...openRecords,
+      ...sessionRecords,
+      ...overdueRecords,
+    ]) {
       byId.putIfAbsent(a.id!, () => a);
     }
 
-    final rows = <_TodayRow>[];
+    final rows = <_DashboardRow>[];
     for (final record in byId.values) {
       final member = await widget.memberRepository.getById(record.memberId);
       rows.add(
-        _TodayRow(
+        _DashboardRow(
           name: member?.name ?? '알 수 없는 회원',
           record: record,
           isToday: record.date == today,
-          stage: _stageOf(record, overdueIds),
+          stage: _stageOf(record, openIds, overdueIds),
         ),
       );
     }
@@ -134,9 +144,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildToday() {
     if (!_loaded) return const Center(child: CircularProgressIndicator());
 
-    // 등원 수에는 등원 시각이 있는 행만 넣는다. 자동 결석 행은 등원하지 않은 사람이다.
-    final checkedIn = _rows.where((r) => r.record.checkInTime != null).length;
-    int countOf(_Stage stage) => _rows.where((r) => r.stage == stage).length;
+    final todayRows = _rows.where((r) => r.isToday).toList();
+    final previousRows = _rows.where((r) => !r.isToday).toList();
+
+    // 요약은 오늘 행만 센다. 등원 수에는 등원 시각이 있는 행만 넣는다 — 자동 결석은 등원하지 않은 사람이다.
+    final checkedIn = todayRows
+        .where((r) => r.record.checkInTime != null)
+        .length;
+    int countOf(_Stage stage) =>
+        todayRows.where((r) => r.stage == stage).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,7 +166,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 12),
         Expanded(
           child: ListView(
-            children: [for (final row in _rows) _TodayTile(row: row)],
+            children: [
+              for (final row in todayRows) _DashboardTile(row: row),
+              if (previousRows.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 4),
+                  child: Text(
+                    _previousSectionTitle,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                for (final row in previousRows) _DashboardTile(row: row),
+              ],
+            ],
           ),
         ),
       ],
@@ -173,20 +201,22 @@ enum _Stage {
   overdue,
 }
 
-/// 12시간 판정은 여기서 다시 하지 않는다. [overdueIds] 는 `findUnclosedSessions` 가 준 행이다.
-_Stage _stageOf(Attendance record, Set<int?> overdueIds) {
+/// 12시간 판정은 여기서 다시 하지 않는다. [openIds] 와 [overdueIds] 는 저장소 조회가 준 행이다.
+_Stage _stageOf(Attendance record, Set<int?> openIds, Set<int?> overdueIds) {
   if (record.checkInTime == null) return _Stage.notCheckedIn;
   if (record.checkOutTime != null) return _Stage.checkedOut;
-  return overdueIds.contains(record.id) ? _Stage.overdue : _Stage.staying;
+  if (overdueIds.contains(record.id)) return _Stage.overdue;
+  assert(openIds.contains(record.id), '열린 행은 체류 중 조회나 미하원 조회 중 하나에 있어야 한다');
+  return _Stage.staying;
 }
 
-class _TodayRow {
+class _DashboardRow {
   final String name;
   final Attendance record;
   final bool isToday;
   final _Stage stage;
 
-  const _TodayRow({
+  const _DashboardRow({
     required this.name,
     required this.record,
     required this.isToday,
@@ -195,10 +225,10 @@ class _TodayRow {
 }
 
 /// 한 회원의 출결 한 줄. 보정 대상(미하원)은 배경색으로 눈에 띄게 한다.
-class _TodayTile extends StatelessWidget {
-  final _TodayRow row;
+class _DashboardTile extends StatelessWidget {
+  final _DashboardRow row;
 
-  const _TodayTile({required this.row});
+  const _DashboardTile({required this.row});
 
   @override
   Widget build(BuildContext context) {

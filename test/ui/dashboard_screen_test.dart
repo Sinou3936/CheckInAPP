@@ -22,6 +22,9 @@ import 'package:checkin_app/ui/screens/dashboard_screen.dart';
 import '../helpers/test_db.dart';
 import '../helpers/widget_test_helpers.dart';
 
+/// 이전 날짜에서 이어진 방문 구역의 제목. 화면과 같은 글자여야 한다.
+const previousSectionTitle = '이전 날짜에서 이어진 방문';
+
 const _checkInUrl = 'http://192.168.0.10:8080/checkin?token=IN-TOKEN';
 const _checkOutUrl = 'http://192.168.0.10:8080/checkin?token=OUT-TOKEN';
 
@@ -239,11 +242,13 @@ void main() {
           await recordOn(h, id, kYesterday, checkIn: atOn(kYesterday, 23, 0));
         },
       );
-      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 0 · 미하원 1');
+      // 요약은 오늘 행만 센다. 어제 행은 이전 날짜 구역에 있다.
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
 
       expect(inRow(find.text('미하원')), findsOneWidget);
       expect(inRow(find.text('체류 중')), findsNothing);
       expect(inRow(find.text('2026-10-16')), findsOneWidget);
+      expect(find.text(previousSectionTitle), findsOneWidget);
     });
 
     testWidgets('등원과 하원을 모두 한 회원은 하원 시각이 보이고 체류·미하원 어디에도 들지 않는다', (
@@ -295,12 +300,84 @@ void main() {
           await recordOn(h, id, kYesterday, checkIn: atOn(kYesterday, 23, 50));
         },
       );
-      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
+      // 요약은 오늘 행 기준이라 0 이다. 체류자는 이전 날짜 구역에 날짜와 함께 보인다.
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
 
       expect(inRow(find.text('홍길동')), findsOneWidget);
       expect(inRow(find.text('2026-10-16')), findsOneWidget);
       expect(inRow(find.text('등원 23:50')), findsOneWidget);
       expect(inRow(find.text('체류 중')), findsOneWidget);
+    });
+
+    testWidgets('자정을 넘겨 하원한 방문은 하원 순간에도 목록에 남고 하원 시각과 날짜가 보인다', (tester) async {
+      // 어제 23:50 등원, 오늘 00:20 하원. 지금은 09:00 이므로 창 안이다.
+      await pumpDashboard(
+        tester,
+        now: DateTime(2026, 10, 17, 9, 0),
+        seed: (h) async {
+          final id = await h.members.insert(const Member(name: '홍길동'));
+          await recordOn(
+            h,
+            id,
+            kYesterday,
+            checkIn: atOn(kYesterday, 23, 50),
+            checkOut: atOn(kToday, 0, 20),
+          );
+        },
+      );
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
+
+      expect(inRow(find.text('홍길동')), findsOneWidget);
+      expect(inRow(find.text('2026-10-16')), findsOneWidget);
+      expect(inRow(find.text('등원 23:50')), findsOneWidget);
+      expect(inRow(find.text('하원 00:20')), findsOneWidget);
+      expect(find.text(previousSectionTitle), findsOneWidget);
+    });
+
+    testWidgets('창을 넘긴 과거 닫힌 세션은 목록에 들어오지 않는다', (tester) async {
+      // 지금 12:00. 어제 09:00~10:00 방문은 등원 후 27시간이 지나 창 밖이다.
+      await pumpDashboard(
+        tester,
+        seed: (h) async {
+          final id = await h.members.insert(const Member(name: '홍길동'));
+          await recordOn(
+            h,
+            id,
+            kYesterday,
+            checkIn: atOn(kYesterday, 9, 0),
+            checkOut: atOn(kYesterday, 10, 0),
+          );
+        },
+      );
+      await waitForSummary(tester, '등원 0 · 하원 0 · 체류 중 0 · 미하원 0');
+
+      expect(find.byType(ListTile), findsNothing);
+      expect(find.text(previousSectionTitle), findsNothing);
+    });
+
+    testWidgets('요약은 오늘 행만 세고, 같은 시각의 과거 체류자는 요약에 섞지 않는다', (tester) async {
+      // 지금 00:30. 오늘 00:10 등원(체류 중)과 어제 23:50 등원(체류 중)이 함께 있다.
+      await pumpDashboard(
+        tester,
+        now: DateTime(2026, 10, 17, 0, 30),
+        seed: (h) async {
+          final today = await h.members.insert(const Member(name: '오늘등원'));
+          await recordOn(h, today, kToday, checkIn: atOn(kToday, 0, 10));
+          final past = await h.members.insert(const Member(name: '어제등원'));
+          await recordOn(
+            h,
+            past,
+            kYesterday,
+            checkIn: atOn(kYesterday, 23, 50),
+          );
+        },
+      );
+      await waitForSummary(tester, '등원 1 · 하원 0 · 체류 중 1 · 미하원 0');
+
+      expect(find.byType(ListTile), findsNWidgets(2));
+      expect(find.text(previousSectionTitle), findsOneWidget);
+      expect(inRow(find.text('2026-10-16')), findsOneWidget);
+      expect(inRow(find.text('2026-10-17')), findsNothing);
     });
 
     testWidgets('오늘 행이면서 체류 중인 행은 목록에 한 번만 나온다', (tester) async {

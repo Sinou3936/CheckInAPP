@@ -8,6 +8,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:checkin_app/repositories/device_binding_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/server/checkin_page.dart';
+import 'package:checkin_app/services/admin_bind_code_service.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/notification_service.dart';
@@ -34,6 +35,10 @@ class CheckInServer {
   final NotificationService notificationService;
   final BindAttemptThrottle bindAttemptThrottle;
 
+  /// 연락처가 없는 회원을 위한 관리자 발급 일회용 코드. 앱이 같은 인스턴스를 공유해야 발급한
+  /// 코드를 서버가 알아본다.
+  final AdminBindCodeService adminBindCodeService;
+
   HttpServer? _server;
 
   CheckInServer({
@@ -44,7 +49,8 @@ class CheckInServer {
     required this.verificationSessionService,
     required this.notificationService,
     required this.bindAttemptThrottle,
-  });
+    AdminBindCodeService? adminBindCodeService,
+  }) : adminBindCodeService = adminBindCodeService ?? AdminBindCodeService();
 
   Router get _router {
     final router = Router();
@@ -202,6 +208,22 @@ class CheckInServer {
     final member = await memberRepository.getById(memberId);
     if (member == null) {
       return _json({'error': 'unknown_member'}, statusCode: 400);
+    }
+
+    // 관리자 발급 코드가 오면 뒷 4자리 대신 그것으로 본인을 확인한다. 6자리 숫자라서 4자리와
+    // 마찬가지로 전수 시도가 가능하므로 틀리면 같은 잠금에 센다.
+    final adminCode = body['adminCode'];
+    if (adminCode is String && adminCode.isNotEmpty) {
+      if (!adminBindCodeService.consume(memberId, adminCode)) {
+        bindAttemptThrottle.recordFailure(
+          deviceToken: deviceToken,
+          memberId: memberId,
+        );
+        return _json({'error': 'verification_failed'}, statusCode: 403);
+      }
+      bindAttemptThrottle.clear(deviceToken: deviceToken, memberId: memberId);
+      await deviceBindingRepository.bind(deviceToken, member.id!);
+      return _json({'bound': true, 'memberName': member.name});
     }
 
     // 자력 바인딩 가능 여부의 판정은 Member 가 한다 — 화면도 같은 판정을 쓴다.

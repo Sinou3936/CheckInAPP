@@ -12,6 +12,7 @@ import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/repositories/notification_log_repository.dart';
 import 'package:checkin_app/server/checkin_server.dart';
 import 'package:checkin_app/services/absence_scheduler.dart';
+import 'package:checkin_app/services/admin_bind_code_service.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
@@ -59,6 +60,7 @@ class _CheckInAppState extends State<CheckInApp> {
   NotificationLogRepository? _notificationLogRepository;
   CheckInAppController? _controller;
   AbsenceScheduler? _absenceScheduler;
+  AdminBindCodeService? _adminBindCodeService;
   bool _disposed = false;
 
   @override
@@ -83,6 +85,8 @@ class _CheckInAppState extends State<CheckInApp> {
     // 서버와 컨트롤러는 반드시 같은 QrTokenService 를 공유해야 한다. 따로 만들면
     // 화면에 뜬 QR 토큰을 서버가 모르는 토큰으로 판정한다.
     final qrTokenService = QrTokenService();
+    // 서버와 회원 화면이 같은 인스턴스를 공유해야 화면에서 발급한 코드를 서버가 알아본다.
+    final adminBindCodeService = AdminBindCodeService();
     final server = CheckInServer(
       memberRepository: memberRepository,
       deviceBindingRepository: deviceBindingRepository,
@@ -94,6 +98,7 @@ class _CheckInAppState extends State<CheckInApp> {
         notifier: RecordingParentNotifier(notificationLogRepository),
       ),
       bindAttemptThrottle: BindAttemptThrottle(),
+      adminBindCodeService: adminBindCodeService,
     );
     final controller = CheckInAppController(
       qrTokenService: qrTokenService,
@@ -116,6 +121,7 @@ class _CheckInAppState extends State<CheckInApp> {
       _memberRepository = memberRepository;
       _classRepository = classRepository;
       _attendanceRepository = attendanceRepository;
+      _adminBindCodeService = adminBindCodeService;
       _deviceBindingRepository = deviceBindingRepository;
       _notificationLogRepository = notificationLogRepository;
     });
@@ -146,6 +152,7 @@ class _CheckInAppState extends State<CheckInApp> {
     final attendanceRepository = _attendanceRepository;
     final deviceBindingRepository = _deviceBindingRepository;
     final notificationLogRepository = _notificationLogRepository;
+    final adminBindCodeService = _adminBindCodeService;
     final controller = _controller;
 
     if (_disposed ||
@@ -154,6 +161,7 @@ class _CheckInAppState extends State<CheckInApp> {
         attendanceRepository == null ||
         deviceBindingRepository == null ||
         notificationLogRepository == null ||
+        adminBindCodeService == null ||
         controller == null) {
       return const MaterialApp(
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -169,6 +177,7 @@ class _CheckInAppState extends State<CheckInApp> {
         attendanceRepository: attendanceRepository,
         deviceBindingRepository: deviceBindingRepository,
         notificationLogRepository: notificationLogRepository,
+        adminBindCodeService: adminBindCodeService,
       ),
     );
   }
@@ -181,6 +190,7 @@ class _HomeShell extends StatefulWidget {
   final AttendanceRepository attendanceRepository;
   final DeviceBindingRepository deviceBindingRepository;
   final NotificationLogRepository notificationLogRepository;
+  final AdminBindCodeService adminBindCodeService;
 
   const _HomeShell({
     required this.controller,
@@ -189,6 +199,7 @@ class _HomeShell extends StatefulWidget {
     required this.attendanceRepository,
     required this.deviceBindingRepository,
     required this.notificationLogRepository,
+    required this.adminBindCodeService,
   });
 
   @override
@@ -209,6 +220,7 @@ class _HomeShellState extends State<_HomeShell> {
       MemberManagementScreen(
         memberRepository: widget.memberRepository,
         classRepository: widget.classRepository,
+        adminBindCodeService: widget.adminBindCodeService,
       ),
       ClassManagementScreen(classRepository: widget.classRepository),
       AttendanceHistoryScreen(

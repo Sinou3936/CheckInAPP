@@ -44,6 +44,7 @@ const String checkInPageHtml = r'''<!doctype html>
   <section id="identify" hidden>
     <select id="memberSelect" class="field"></select>
     <input id="contactLast4" class="field" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="학부모 연락처 뒷 4자리">
+    <input id="adminCode" class="field" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="관리자 발급 코드 (연락처가 없는 경우)">
     <button id="bindButton" type="button">확인</button>
   </section>
 
@@ -56,6 +57,7 @@ const String checkInPageHtml = r'''<!doctype html>
   var identifyEl = document.getElementById('identify');
   var memberSelect = document.getElementById('memberSelect');
   var contactInput = document.getElementById('contactLast4');
+  var adminCodeInput = document.getElementById('adminCode');
   var bindButton = document.getElementById('bindButton');
   var switchButton = document.getElementById('switchButton');
 
@@ -157,6 +159,7 @@ const String checkInPageHtml = r'''<!doctype html>
         memberSelect.appendChild(option);
       });
       contactInput.value = '';
+      adminCodeInput.value = '';
       identifyEl.hidden = false;
       switchButton.hidden = true;
       show('이름을 고르고 학부모 연락처 뒷 4자리를 입력해 주세요.');
@@ -166,21 +169,25 @@ const String checkInPageHtml = r'''<!doctype html>
   function bind() {
     var memberId = parseInt(memberSelect.value, 10);
     var last4 = contactInput.value.trim();
+    var adminCode = adminCodeInput.value.trim();
     if (isNaN(memberId)) { show('이름을 선택해 주세요.', 'error'); return; }
-    if (!/^[0-9]{4}$/.test(last4)) { show('연락처 뒷 4자리를 숫자로 입력해 주세요.', 'error'); return; }
+    // 관리자 코드가 있으면 그것으로, 없으면 연락처 뒷 4자리로 확인한다.
+    var payload = { session: sessionId, deviceToken: deviceToken, memberId: memberId };
+    if (adminCode) {
+      if (!/^[0-9]{6}$/.test(adminCode)) { show('관리자 코드는 숫자 6자리입니다.', 'error'); return; }
+      payload.adminCode = adminCode;
+    } else {
+      if (!/^[0-9]{4}$/.test(last4)) { show('연락처 뒷 4자리를 숫자로 입력해 주세요.', 'error'); return; }
+      payload.contactLast4 = last4;
+    }
 
     bindButton.disabled = true;
-    request('POST', '/api/bind', {
-      session: sessionId,
-      deviceToken: deviceToken,
-      memberId: memberId,
-      contactLast4: last4
-    }).then(function (r) {
+    request('POST', '/api/bind', payload).then(function (r) {
       bindButton.disabled = false;
       if (r.status === 200 && r.data.bound) { identifyEl.hidden = true; checkIn(); return; }
       var error = r.data.error;
-      if (error === 'verification_unavailable') { show('관리자에게 요청해 주세요.', 'error'); return; }
-      if (error === 'verification_failed') { show('연락처가 일치하지 않습니다.', 'error'); return; }
+      if (error === 'verification_unavailable') { show('관리자에게 코드를 받아 입력해 주세요.', 'error'); return; }
+      if (error === 'verification_failed') { show('연락처 또는 코드가 일치하지 않습니다.', 'error'); return; }
       if (error === 'too_many_attempts') { show('잠시 후 다시 시도해 주세요.', 'error'); return; }
       if (error === 'invalid_session') { showError(EXPIRED); return; }
       showError(UNEXPECTED);

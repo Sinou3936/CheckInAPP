@@ -3,15 +3,20 @@ import 'package:checkin_app/models/class_model.dart';
 import 'package:checkin_app/models/member.dart';
 import 'package:checkin_app/repositories/class_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/services/admin_bind_code_service.dart';
 
 class MemberManagementScreen extends StatefulWidget {
   final MemberRepository memberRepository;
   final ClassRepository classRepository;
 
+  /// 연락처가 없는 회원의 기기 바인딩을 대행할 코드 발급기. 없으면 발급 버튼을 숨긴다.
+  final AdminBindCodeService? adminBindCodeService;
+
   const MemberManagementScreen({
     super.key,
     required this.memberRepository,
     required this.classRepository,
+    this.adminBindCodeService,
   });
 
   @override
@@ -80,6 +85,37 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
     await _reload();
   }
 
+  /// 코드를 발급해 보여준다. 관리자가 카운터에서 본인임을 확인한 뒤 학생에게 불러주는 용도다.
+  Future<void> _issueBindCode(Member member) async {
+    final service = widget.adminBindCodeService;
+    if (service == null) return;
+    final code = service.issue(member.id!);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${member.name} 기기 연동 코드'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(
+              code,
+              key: const Key('bindCodeText'),
+              style: Theme.of(context).textTheme.displaySmall,
+            ),
+            const SizedBox(height: 12),
+            const Text('본인 확인 후 학생에게 알려 주세요.\n체크인 페이지의 관리자 코드 칸에 입력하면 기기가 묶입니다.\n5분 안에 한 번만 쓸 수 있습니다.'),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _classNameOf(int? classId) {
     if (classId == null) return '반 없음';
     for (final c in _classes) {
@@ -121,6 +157,12 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (!m.canSelfBind && widget.adminBindCodeService != null)
+                          IconButton(
+                            tooltip: '기기 연동 코드 발급',
+                            icon: const Icon(Icons.vpn_key),
+                            onPressed: () => _issueBindCode(m),
+                          ),
                         IconButton(
                           tooltip: '수정',
                           icon: const Icon(Icons.edit),

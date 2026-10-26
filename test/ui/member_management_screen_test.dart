@@ -4,6 +4,7 @@ import 'package:checkin_app/models/class_model.dart';
 import 'package:checkin_app/models/member.dart';
 import 'package:checkin_app/repositories/class_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
+import 'package:checkin_app/services/admin_bind_code_service.dart';
 import 'package:checkin_app/ui/screens/member_management_screen.dart';
 
 import '../helpers/test_db.dart';
@@ -18,6 +19,7 @@ class MemberHarness {
 Future<MemberHarness> pumpScreen(
   WidgetTester tester, {
   Future<void> Function(MemberHarness h)? seed,
+  AdminBindCodeService? bindCodes,
 }) async {
   final db = (await tester.runAsync(openTestDatabase))!;
   addTearDown(() => db.close());
@@ -28,6 +30,7 @@ Future<MemberHarness> pumpScreen(
       home: MemberManagementScreen(
         memberRepository: harness.members,
         classRepository: harness.classes,
+        adminBindCodeService: bindCodes,
       ),
     ),
   );
@@ -289,5 +292,40 @@ void main() {
 
     expect(inRow(find.text('홍길동')), findsOneWidget);
     expect((await tester.runAsync(h.members.getAll))!, hasLength(1));
+  });
+
+  testWidgets('연락처 없는 회원에게만 연동 코드 발급 버튼이 보이고 코드가 서버 발급기와 일치한다',
+      (tester) async {
+    final bindCodes = AdminBindCodeService();
+    late int noContactId;
+    await pumpScreen(
+      tester,
+      bindCodes: bindCodes,
+      seed: (h) async {
+        noContactId = await h.members.insert(const Member(name: '연락처없음'));
+        await h.members.insert(
+          const Member(name: '연락처있음', parentContact: '010-1111-2222'),
+        );
+      },
+    );
+
+    // 대행이 필요한 회원 한 명에게만 버튼이 있다.
+    expect(find.byTooltip('기기 연동 코드 발급'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('기기 연동 코드 발급'));
+    await tester.pumpAndSettle();
+    final code = tester.widget<SelectableText>(find.byKey(const Key('bindCodeText'))).data!;
+    expect(code, matches(RegExp(r'^[0-9]{6}$')));
+    expect(bindCodes.consume(noContactId, code), isTrue);
+  });
+
+  testWidgets('발급기를 넘기지 않으면 발급 버튼이 없다', (tester) async {
+    await pumpScreen(
+      tester,
+      seed: (h) async {
+        await h.members.insert(const Member(name: '연락처없음'));
+      },
+    );
+    expect(find.byTooltip('기기 연동 코드 발급'), findsNothing);
   });
 }

@@ -235,7 +235,9 @@ class _CheckInBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
       decoration: BoxDecoration(
-        color: event.isLate ? scheme.tertiaryContainer : scheme.primaryContainer,
+        color: event.isLate
+            ? scheme.tertiaryContainer
+            : scheme.primaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(

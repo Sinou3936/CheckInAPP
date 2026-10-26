@@ -73,10 +73,20 @@ void main() {
     final session = await h.issueSession(h.qr.checkInToken);
 
     for (var i = 0; i < 5; i++) {
-      final r = await _bind(h, session: session, memberId: memberId, adminCode: wrong);
+      final r = await _bind(
+        h,
+        session: session,
+        memberId: memberId,
+        adminCode: wrong,
+      );
       expect(r.statusCode, 403);
     }
-    final locked = await _bind(h, session: session, memberId: memberId, adminCode: code);
+    final locked = await _bind(
+      h,
+      session: session,
+      memberId: memberId,
+      adminCode: code,
+    );
     expect(locked.statusCode, 429);
     expect(await h.devices.getByToken('device-1'), isNull);
   });

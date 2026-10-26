@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -9,14 +8,12 @@ import 'package:checkin_app/services/qr_token_service.dart';
 
 import '../helpers/checkin_server_harness.dart';
 
-Future<http.Response> _check(
-  CheckInServerHarness h,
-  String session,
-) => http.post(
-  h.uri('/api/checkin'),
-  headers: {'content-type': 'application/json'},
-  body: jsonEncode({'session': session, 'deviceToken': 'device-1'}),
-);
+Future<http.Response> _check(CheckInServerHarness h, String session) =>
+    http.post(
+      h.uri('/api/checkin'),
+      headers: {'content-type': 'application/json'},
+      body: jsonEncode({'session': session, 'deviceToken': 'device-1'}),
+    );
 
 /// 연락처가 있는 회원을 만들고 `device-1` 을 그 회원에 묶어 둔다.
 Future<void> _bindMember(CheckInServerHarness h) async {

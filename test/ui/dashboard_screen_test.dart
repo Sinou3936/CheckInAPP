@@ -179,14 +179,20 @@ void main() {
       final h = await pumpDashboard(tester);
       final bus = h.controller.server.checkInEventBus;
 
+      // 이벤트는 배너와 함께 목록 재조회를 일으킨다. 맨 pump() 로는 그 DB 조회가 끝나지
+      // 않아 sqflite 가 만든 잠금 타이머가 남고 테스트가 pending timer 로 실패한다.
       bus.publish(
-        const CheckInEvent(memberName: '김지각', kind: QrKind.checkIn, isLate: true),
+        const CheckInEvent(
+          memberName: '김지각',
+          kind: QrKind.checkIn,
+          isLate: true,
+        ),
       );
-      await tester.pump();
+      await pumpUntil(tester, () => shown(find.text('김지각 님 등원 완료 (지각)')));
       expect(find.text('김지각 님 등원 완료 (지각)'), findsOneWidget);
 
       bus.publish(const CheckInEvent(memberName: '이하원', kind: QrKind.checkOut));
-      await tester.pump();
+      await pumpUntil(tester, () => shown(find.text('이하원 님 하원 완료')));
       expect(find.text('이하원 님 하원 완료'), findsOneWidget);
       expect(find.textContaining('김지각'), findsNothing);
 

@@ -294,8 +294,7 @@ void main() {
     expect((await tester.runAsync(h.members.getAll))!, hasLength(1));
   });
 
-  testWidgets('연락처 없는 회원에게만 연동 코드 발급 버튼이 보이고 코드가 서버 발급기와 일치한다',
-      (tester) async {
+  testWidgets('연락처 없는 회원에게만 연동 코드 발급 버튼이 보이고 코드가 서버 발급기와 일치한다', (tester) async {
     final bindCodes = AdminBindCodeService();
     late int noContactId;
     await pumpScreen(
@@ -314,7 +313,9 @@ void main() {
 
     await tester.tap(find.byTooltip('기기 연동 코드 발급'));
     await tester.pumpAndSettle();
-    final code = tester.widget<SelectableText>(find.byKey(const Key('bindCodeText'))).data!;
+    final code = tester
+        .widget<SelectableText>(find.byKey(const Key('bindCodeText')))
+        .data!;
     expect(code, matches(RegExp(r'^[0-9]{6}$')));
     expect(bindCodes.consume(noContactId, code), isTrue);
   });

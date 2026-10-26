@@ -26,7 +26,10 @@ class AuditLogScreen extends StatelessWidget {
         appBar: AppBar(
           title: const Text('알림·바인딩 이력'),
           bottom: const TabBar(
-            tabs: [Tab(text: '알림 내역'), Tab(text: '바인딩 이력')],
+            tabs: [
+              Tab(text: '알림 내역'),
+              Tab(text: '바인딩 이력'),
+            ],
           ),
         ),
         body: TabBarView(

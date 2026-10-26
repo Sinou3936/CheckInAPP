@@ -103,7 +103,9 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
               style: Theme.of(context).textTheme.displaySmall,
             ),
             const SizedBox(height: 12),
-            const Text('본인 확인 후 학생에게 알려 주세요.\n체크인 페이지의 관리자 코드 칸에 입력하면 기기가 묶입니다.\n5분 안에 한 번만 쓸 수 있습니다.'),
+            const Text(
+              '본인 확인 후 학생에게 알려 주세요.\n체크인 페이지의 관리자 코드 칸에 입력하면 기기가 묶입니다.\n5분 안에 한 번만 쓸 수 있습니다.',
+            ),
           ],
         ),
         actions: [
@@ -157,7 +159,8 @@ class _MemberManagementScreenState extends State<MemberManagementScreen> {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (!m.canSelfBind && widget.adminBindCodeService != null)
+                        if (!m.canSelfBind &&
+                            widget.adminBindCodeService != null)
                           IconButton(
                             tooltip: '기기 연동 코드 발급',
                             icon: const Icon(Icons.vpn_key),

@@ -9,6 +9,7 @@ import 'package:checkin_app/repositories/class_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/services/absence_scheduler.dart';
 import 'package:checkin_app/services/attendance_service.dart';
+
 import '../helpers/test_db.dart';
 
 class _Fixture {
@@ -18,7 +19,13 @@ class _Fixture {
   final AbsenceScheduler scheduler;
   final int memberId;
 
-  _Fixture(this.db, this.attendanceRepo, this.appState, this.scheduler, this.memberId);
+  _Fixture(
+    this.db,
+    this.attendanceRepo,
+    this.appState,
+    this.scheduler,
+    this.memberId,
+  );
 
   static Future<_Fixture> create(Set<int> operatingDays) async {
     final db = await openTestDatabase();
@@ -27,9 +34,15 @@ class _Fixture {
     final attendanceRepo = AttendanceRepository(db);
     final appState = AppStateRepository(db);
     final classId = await classRepo.insert(
-      ClassModel(name: '테스트반', startTime: '15:00', operatingDays: operatingDays),
+      ClassModel(
+        name: '테스트반',
+        startTime: '15:00',
+        operatingDays: operatingDays,
+      ),
     );
-    final memberId = await memberRepo.insert(Member(name: '결석자', classId: classId));
+    final memberId = await memberRepo.insert(
+      Member(name: '결석자', classId: classId),
+    );
     final scheduler = AbsenceScheduler(
       attendanceService: AttendanceService(
         memberRepository: memberRepo,
@@ -41,8 +54,10 @@ class _Fixture {
     return _Fixture(db, attendanceRepo, appState, scheduler, memberId);
   }
 
-  Future<Attendance?> on(DateTime day) =>
-      attendanceRepo.getByMemberAndDate(memberId, AttendanceService.formatDate(day));
+  Future<Attendance?> on(DateTime day) => attendanceRepo.getByMemberAndDate(
+    memberId,
+    AttendanceService.formatDate(day),
+  );
 }
 
 void main() {
@@ -52,7 +67,10 @@ void main() {
 
     await f.scheduler.checkNow(now: DateTime(2026, 9, 19)); // 토요일
     expect(await f.on(DateTime(2026, 9, 18)), isNull);
-    expect(await f.appState.get(AbsenceScheduler.lastProcessedKey), '2026-09-18');
+    expect(
+      await f.appState.get(AbsenceScheduler.lastProcessedKey),
+      '2026-09-18',
+    );
   });
 
   test('날짜가 넘어가면 전날 결석자를 처리한다', () async {
@@ -63,7 +81,10 @@ void main() {
     expect(await f.on(DateTime(2026, 9, 18)), isNull);
 
     await f.scheduler.checkNow(now: DateTime(2026, 9, 19)); // 토요일: 금요일을 쓸어낸다
-    expect((await f.on(DateTime(2026, 9, 18)))?.status, AttendanceStatus.absent);
+    expect(
+      (await f.on(DateTime(2026, 9, 18)))?.status,
+      AttendanceStatus.absent,
+    );
   });
 
   test('꺼져 있던 며칠을 시작 시점에 따라잡는다', () async {
@@ -74,11 +95,17 @@ void main() {
     await f.scheduler.checkNow(now: DateTime(2026, 9, 22)); // 며칠 뒤 앱을 켬
 
     for (final day in [18, 19, 20, 21]) {
-      expect((await f.on(DateTime(2026, 9, day)))?.status, AttendanceStatus.absent,
-          reason: '9/$day');
+      expect(
+        (await f.on(DateTime(2026, 9, day)))?.status,
+        AttendanceStatus.absent,
+        reason: '9/$day',
+      );
     }
     expect(await f.on(DateTime(2026, 9, 22)), isNull, reason: '오늘은 아직 끝나지 않았다');
-    expect(await f.appState.get(AbsenceScheduler.lastProcessedKey), '2026-09-21');
+    expect(
+      await f.appState.get(AbsenceScheduler.lastProcessedKey),
+      '2026-09-21',
+    );
   });
 
   test('같은 날 다시 확인해도 다시 처리하지 않는다', () async {

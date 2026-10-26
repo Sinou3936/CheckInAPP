@@ -16,9 +16,8 @@ class AppStateRepository {
     return rows.first['value'] as String;
   }
 
-  Future<void> set(String key, String value) => db.insert(
-        'app_state',
-        {'key': key, 'value': value},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+  Future<void> set(String key, String value) => db.insert('app_state', {
+    'key': key,
+    'value': value,
+  }, conflictAlgorithm: ConflictAlgorithm.replace);
 }

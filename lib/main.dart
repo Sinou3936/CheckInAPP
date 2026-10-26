@@ -52,7 +52,6 @@ class CheckInApp extends StatefulWidget {
 }
 
 class _CheckInAppState extends State<CheckInApp> {
-  Database? _db;
   MemberRepository? _memberRepository;
   ClassRepository? _classRepository;
   AttendanceRepository? _attendanceRepository;
@@ -71,7 +70,6 @@ class _CheckInAppState extends State<CheckInApp> {
 
   Future<void> _initialize() async {
     final db = await DatabaseHelper.open(widget.dbPath ?? inMemoryDatabasePath);
-    _db = db;
     final memberRepository = MemberRepository(db);
     final classRepository = ClassRepository(db);
     final attendanceRepository = AttendanceRepository(db);
@@ -132,16 +130,12 @@ class _CheckInAppState extends State<CheckInApp> {
     _disposed = true;
     _absenceScheduler?.stop();
     final controller = _controller;
-    final db = _db;
-    // 서버를 내린 뒤에 DB 를 닫는다 — 처리 중인 요청이 닫힌 핸들을 만지지 않게.
-    if (controller != null) {
-      controller.stop().whenComplete(() {
-        controller.dispose();
-        db?.close();
-      });
-    } else {
-      db?.close();
-    }
+    // 서버를 내린다. 타이머는 stop() 안에서 동기적으로 끊기고, 소켓은 await 뒤에 닫힌다.
+    controller?.stop().whenComplete(controller.dispose);
+    // **DB 는 닫지 않는다.** 타이머를 끊어도 이미 떠난 비동기 조회는 취소할 수 없어서, 여기서
+    // 닫으면 그것들이 닫힌 핸들을 만져 처리되지 않은 예외가 된다 (대시보드의 _refresh,
+    // 결석 스케줄러의 app_state 쓰기가 실제로 그랬다). 핸들의 수명은 프로세스 수명이고
+    // 프로세스가 끝나면 OS 가 정리하므로 닫아서 얻는 것이 없다.
     super.dispose();
   }
 

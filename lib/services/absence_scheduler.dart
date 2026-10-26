@@ -43,7 +43,9 @@ class AbsenceScheduler {
       if (stored == null) {
         // 첫 실행: 거슬러 올라갈 기록이 없으므로 어제까지 처리한 것으로 시작한다.
         await appStateRepository.set(
-            lastProcessedKey, AttendanceService.formatDate(yesterday));
+          lastProcessedKey,
+          AttendanceService.formatDate(yesterday),
+        );
         return;
       }
 
@@ -53,7 +55,9 @@ class AbsenceScheduler {
         await attendanceService.markAbsentees(day);
         // 하루 처리할 때마다 저장한다 — 중간에 앱이 꺼져도 처리한 날을 다시 쓸지 않는다.
         await appStateRepository.set(
-            lastProcessedKey, AttendanceService.formatDate(day));
+          lastProcessedKey,
+          AttendanceService.formatDate(day),
+        );
         day = DateTime(day.year, day.month, day.day + 1);
       }
     } finally {

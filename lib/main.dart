@@ -20,6 +20,7 @@ import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/services/verification_session_service.dart';
 import 'package:checkin_app/ui/screens/attendance_history_screen.dart';
+import 'package:checkin_app/ui/screens/audit_log_screen.dart';
 import 'package:checkin_app/ui/screens/class_management_screen.dart';
 import 'package:checkin_app/ui/screens/dashboard_screen.dart';
 import 'package:checkin_app/ui/screens/member_management_screen.dart';
@@ -54,6 +55,8 @@ class _CheckInAppState extends State<CheckInApp> {
   MemberRepository? _memberRepository;
   ClassRepository? _classRepository;
   AttendanceRepository? _attendanceRepository;
+  DeviceBindingRepository? _deviceBindingRepository;
+  NotificationLogRepository? _notificationLogRepository;
   CheckInAppController? _controller;
   AbsenceScheduler? _absenceScheduler;
   bool _disposed = false;
@@ -70,6 +73,8 @@ class _CheckInAppState extends State<CheckInApp> {
     final memberRepository = MemberRepository(db);
     final classRepository = ClassRepository(db);
     final attendanceRepository = AttendanceRepository(db);
+    final deviceBindingRepository = DeviceBindingRepository(db);
+    final notificationLogRepository = NotificationLogRepository(db);
     final attendanceService = AttendanceService(
       memberRepository: memberRepository,
       classRepository: classRepository,
@@ -80,13 +85,13 @@ class _CheckInAppState extends State<CheckInApp> {
     final qrTokenService = QrTokenService();
     final server = CheckInServer(
       memberRepository: memberRepository,
-      deviceBindingRepository: DeviceBindingRepository(db),
+      deviceBindingRepository: deviceBindingRepository,
       attendanceService: attendanceService,
       qrTokenService: qrTokenService,
       verificationSessionService: VerificationSessionService(),
       notificationService: NotificationService(
         memberRepository: memberRepository,
-        notifier: RecordingParentNotifier(NotificationLogRepository(db)),
+        notifier: RecordingParentNotifier(notificationLogRepository),
       ),
       bindAttemptThrottle: BindAttemptThrottle(),
     );
@@ -111,6 +116,8 @@ class _CheckInAppState extends State<CheckInApp> {
       _memberRepository = memberRepository;
       _classRepository = classRepository;
       _attendanceRepository = attendanceRepository;
+      _deviceBindingRepository = deviceBindingRepository;
+      _notificationLogRepository = notificationLogRepository;
     });
   }
 
@@ -137,12 +144,16 @@ class _CheckInAppState extends State<CheckInApp> {
     final memberRepository = _memberRepository;
     final classRepository = _classRepository;
     final attendanceRepository = _attendanceRepository;
+    final deviceBindingRepository = _deviceBindingRepository;
+    final notificationLogRepository = _notificationLogRepository;
     final controller = _controller;
 
     if (_disposed ||
         memberRepository == null ||
         classRepository == null ||
         attendanceRepository == null ||
+        deviceBindingRepository == null ||
+        notificationLogRepository == null ||
         controller == null) {
       return const MaterialApp(
         home: Scaffold(body: Center(child: CircularProgressIndicator())),
@@ -156,6 +167,8 @@ class _CheckInAppState extends State<CheckInApp> {
         memberRepository: memberRepository,
         classRepository: classRepository,
         attendanceRepository: attendanceRepository,
+        deviceBindingRepository: deviceBindingRepository,
+        notificationLogRepository: notificationLogRepository,
       ),
     );
   }
@@ -166,12 +179,16 @@ class _HomeShell extends StatefulWidget {
   final MemberRepository memberRepository;
   final ClassRepository classRepository;
   final AttendanceRepository attendanceRepository;
+  final DeviceBindingRepository deviceBindingRepository;
+  final NotificationLogRepository notificationLogRepository;
 
   const _HomeShell({
     required this.controller,
     required this.memberRepository,
     required this.classRepository,
     required this.attendanceRepository,
+    required this.deviceBindingRepository,
+    required this.notificationLogRepository,
   });
 
   @override
@@ -198,6 +215,11 @@ class _HomeShellState extends State<_HomeShell> {
         memberRepository: widget.memberRepository,
         attendanceRepository: widget.attendanceRepository,
       ),
+      AuditLogScreen(
+        deviceBindingRepository: widget.deviceBindingRepository,
+        notificationLogRepository: widget.notificationLogRepository,
+        memberRepository: widget.memberRepository,
+      ),
     ];
 
     return Scaffold(
@@ -210,6 +232,7 @@ class _HomeShellState extends State<_HomeShell> {
           NavigationDestination(icon: Icon(Icons.people), label: '회원'),
           NavigationDestination(icon: Icon(Icons.class_), label: '반'),
           NavigationDestination(icon: Icon(Icons.history), label: '기록'),
+          NavigationDestination(icon: Icon(Icons.fact_check), label: '점검'),
         ],
       ),
     );

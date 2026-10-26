@@ -40,4 +40,14 @@ class DeviceBindingRepository {
     if (rows.isEmpty) return null;
     return DeviceBinding.fromMap(rows.first);
   }
+
+  /// 바인딩 이력을 최신순으로 돌려준다. 관리자가 사칭 여부를 점검하는 화면이 쓴다.
+  Future<List<BindingLog>> getRecentLogs({int limit = 100}) async {
+    final rows = await db.query(
+      'binding_logs',
+      orderBy: 'occurred_at DESC, id DESC',
+      limit: limit,
+    );
+    return rows.map(BindingLog.fromMap).toList();
+  }
 }

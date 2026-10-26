@@ -54,4 +54,20 @@ void main() {
     expect(logs.map((r) => r['member_id']).toList(), [42, 99]);
     await db.close();
   });
+
+  _logTests();
+}
+
+void _logTests() {
+  test('getRecentLogs 는 재바인딩 이력까지 최신순으로 돌려준다', () async {
+    final db = await openTestDatabase();
+    addTearDown(db.close);
+    final repo = DeviceBindingRepository(db);
+
+    await repo.bind('device-1', 1, now: DateTime(2026, 10, 1, 9));
+    await repo.bind('device-1', 2, now: DateTime(2026, 10, 2, 9));
+
+    final logs = await repo.getRecentLogs();
+    expect(logs.map((l) => l.memberId), [2, 1]);
+  });
 }

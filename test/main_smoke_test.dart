@@ -11,6 +11,7 @@ void main() {
     expect(find.text('회원'), findsOneWidget);
     expect(find.text('반'), findsOneWidget);
     expect(find.text('기록'), findsOneWidget);
+    expect(find.text('점검'), findsOneWidget);
 
     // 서버 소켓과 타이머를 정리한다.
     await tester.pumpWidget(const SizedBox());

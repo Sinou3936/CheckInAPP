@@ -64,7 +64,7 @@ Task 15 는 본문 개정 없이 구현했으나 정정 8건이 필요했다 —
 | **15** | **구현 완료** (`b912ff8`, `4d4b641`, `5e8eb87`, 테스트 160개). 본문 정정 8건 반영 — **본문의 Step 1·3 코드는 폐기**, 실제 결과물을 볼 것 |
 | **16** | **구현 완료** (`77338bd`, `6af5ddf`, `31e116c`, `fe5acbf`, `baf61fd`). **본문 Step 1·3 코드는 폐기** — 해당 절 머리말을 볼 것. 미하원 정의를 스펙대로 바로잡았다 |
 | **17** | **구현 완료** (`204d301`, `9e3a4db`, 테스트 193개). **본문 Step 1·3 코드는 폐기** — 해당 절 머리말을 볼 것. 보정 기능을 새로 넣었다 |
-| 18 | **개정 필요** — 알림 서비스 배선, 결석 처리 따라잡기(`app_state`), DB 파일 경로 |
+| **18** | **구현 완료** (테스트 미실행 — 작성 환경에 Flutter 없음, Windows 에서 `flutter test` 필요). **본문 Step 1·3·5 코드는 폐기** — 해당 절 머리말을 볼 것 |
 
 > **남은 UI 태스크(15·16·17)가 쓸 위젯 테스트 패턴** — Task 14 가 이 프로젝트의 첫 위젯
 > 테스트였고, 두 가지가 섞여 있어 한 번 호되게 걸렸다. 같은 함정을 다시 밟지 말 것.
@@ -2936,6 +2936,18 @@ git commit -m "feat: add attendance history screen"
 ---
 
 ## Task 18: App shell wiring (main.dart, navigation, daily absence scheduler)
+
+> ✅ **구현 완료**: `lib/services/absence_scheduler.dart`, `lib/repositories/app_state_repository.dart`,
+> `lib/main.dart`, `test/services/absence_scheduler_test.dart`, `test/main_smoke_test.dart`.
+>
+> **아래 본문의 Step 1·3·5 코드는 폐기됐다.** 2026-10-16 개정 전에 쓰여서:
+> - 스케줄러가 "마지막 처리 날짜"를 메모리에만 두어 PC 가 꺼져 있던 날을 따라잡지 못한다.
+>   스펙 11번대로 `app_state` 에 저장하고 시작 시 어제까지 하루씩 따라잡도록 바꿨다
+>   (`AppStateRepository` 신설, 하루 처리할 때마다 저장).
+> - `CheckInServer` 생성자 인자가 4개로 적혀 있으나 실제는 7개이고, 서버와 컨트롤러가
+>   `QrTokenService` 를 **각자 만들면** 화면의 QR 토큰을 서버가 모른다 — 하나를 공유한다.
+> - 스모크 테스트가 찾는 문구는 '실시간 현황' 이다 ('실시간 체크인 현황' 아님).
+> - 첫 실행(저장된 날짜 없음)은 소급 처리 없이 어제까지 처리한 것으로 기록한다.
 
 **Files:**
 - Create: `lib/services/absence_scheduler.dart`

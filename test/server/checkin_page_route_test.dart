@@ -68,4 +68,14 @@ void main() {
     expect(body, isNot(contains('http://')));
     expect(body, isNot(contains('https://')));
   });
+
+  test('페이지는 결과에 따라 화면 전체 색과 큰 표시를 바꾼다', () {
+    for (final state in ['ok', 'late', 'again', 'fail']) {
+      expect(checkInPageHtml, contains('body.state-$state'), reason: state);
+    }
+    // 종료 오류는 실패 화면, 지각은 주황, 재스캔은 성공과 다른 색을 쓴다.
+    expect(checkInPageHtml, contains("show(text, 'error', 'fail')"));
+    expect(checkInPageHtml, contains("d.status === 'late' ? 'late' : 'ok'"));
+    expect(checkInPageHtml, contains("'이미 등원하셨습니다', 'ok', 'again'"));
+  });
 }

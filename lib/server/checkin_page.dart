@@ -30,6 +30,19 @@ const String checkInPageHtml = r'''<!doctype html>
   #message.ok { color: #1b7f3b; font-weight: bold; font-size: 22px; }
   #message.late { color: #b45309; }
   #message.error { color: #b3261e; }
+
+  /* 체크가 끝났거나 막혔을 때는 화면 전체를 한 색으로 채운다. 멀리서 힐끗 봐도 결과를 알 수 있어야
+     해서다. 초록 = 기록됨, 주황 = 지각으로 기록됨, 파랑 = 이미 기록돼 있음, 빨강 = 못 찍음. */
+  #mark { display: none; text-align: center; font-size: 96px; line-height: 1.1; font-weight: bold; }
+  body.state-ok, body.state-late, body.state-again, body.state-fail { color: #fff; }
+  body.state-ok { background: #1b7f3b; }
+  body.state-late { background: #b45309; }
+  body.state-again { background: #2563eb; }
+  body.state-fail { background: #b3261e; }
+  body.state-ok #mark, body.state-late #mark, body.state-again #mark, body.state-fail #mark { display: block; }
+  body.state-ok #message, body.state-late #message, body.state-again #message, body.state-fail #message {
+    color: #fff; font-size: 26px; font-weight: bold;
+  }
   .field { display: block; width: 100%; margin: 8px 0; padding: 14px; font-size: 18px; }
   button { display: block; width: 100%; margin: 8px 0; padding: 14px; font-size: 18px; border: 0; border-radius: 8px; color: #fff; background: #2563eb; }
   button.secondary { color: #222; background: #dfe3e8; }
@@ -39,6 +52,7 @@ const String checkInPageHtml = r'''<!doctype html>
 <body>
 <main>
   <h1 id="title">출결 체크</h1>
+  <div id="mark" aria-hidden="true"></div>
   <p id="message">확인하는 중입니다...</p>
 
   <section id="identify" hidden>
@@ -64,14 +78,25 @@ const String checkInPageHtml = r'''<!doctype html>
   var sessionId = null;
   var deviceToken = null;
 
-  function show(text, cls) {
-    messageEl.textContent = text;
-    messageEl.className = cls || '';
+  var markEl = document.getElementById('mark');
+
+  // 결과에 따라 화면 전체의 색과 큰 표시를 바꾼다. state 가 없으면 평소 화면이다.
+  var MARKS = { ok: '✓', late: '✓', again: '✓', fail: '✕' };
+  function setState(state) {
+    document.body.className = state ? 'state-' + state : '';
+    markEl.textContent = state ? MARKS[state] : '';
   }
 
+  function show(text, cls, state) {
+    messageEl.textContent = text;
+    messageEl.className = cls || '';
+    setState(state);
+  }
+
+  // 더는 진행할 수 없는 오류. 양식 안의 입력 안내는 show(..., 'error') 로 인라인에 두고 화면은 그대로 둔다.
   function showError(text) {
     identifyEl.hidden = true;
-    show(text, 'error');
+    show(text, 'error', 'fail');
   }
 
   var EXPIRED = 'QR 코드가 만료되었습니다. 다시 스캔해 주세요.';
@@ -202,12 +227,13 @@ const String checkInPageHtml = r'''<!doctype html>
       if (r.status === 200) {
         if (d.result === 'checkedIn') {
           show(d.memberName + ' 님 등원 완료' + (d.status === 'late' ? ' (지각)' : ''),
-              d.status === 'late' ? 'ok late' : 'ok');
+              d.status === 'late' ? 'ok late' : 'ok',
+              d.status === 'late' ? 'late' : 'ok');
           return;
         }
-        if (d.result === 'checkedOut') { show(d.memberName + ' 님 하원 완료', 'ok'); return; }
-        if (d.result === 'alreadyCheckedIn') { show('이미 등원하셨습니다', 'ok'); return; }
-        if (d.result === 'alreadyCheckedOut') { show('오늘은 이미 하원 처리되었습니다', 'ok'); return; }
+        if (d.result === 'checkedOut') { show(d.memberName + ' 님 하원 완료', 'ok', 'ok'); return; }
+        if (d.result === 'alreadyCheckedIn') { show('이미 등원하셨습니다', 'ok', 'again'); return; }
+        if (d.result === 'alreadyCheckedOut') { show('오늘은 이미 하원 처리되었습니다', 'ok', 'again'); return; }
         showError(UNEXPECTED);
         return;
       }

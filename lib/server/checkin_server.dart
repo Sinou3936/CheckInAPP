@@ -5,12 +5,14 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 
+import 'package:checkin_app/models/attendance.dart';
 import 'package:checkin_app/repositories/device_binding_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/server/checkin_page.dart';
 import 'package:checkin_app/services/admin_bind_code_service.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
+import 'package:checkin_app/services/checkin_event_bus.dart';
 import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/services/verification_session_service.dart';
@@ -39,6 +41,9 @@ class CheckInServer {
   /// 코드를 서버가 알아본다.
   final AdminBindCodeService adminBindCodeService;
 
+  /// 기록된 체크를 카운터 화면으로 흘려보내는 통로. 화면이 같은 인스턴스를 들어야 배너가 뜬다.
+  final CheckInEventBus checkInEventBus;
+
   HttpServer? _server;
 
   CheckInServer({
@@ -50,7 +55,9 @@ class CheckInServer {
     required this.notificationService,
     required this.bindAttemptThrottle,
     AdminBindCodeService? adminBindCodeService,
-  }) : adminBindCodeService = adminBindCodeService ?? AdminBindCodeService();
+    CheckInEventBus? checkInEventBus,
+  }) : adminBindCodeService = adminBindCodeService ?? AdminBindCodeService(),
+       checkInEventBus = checkInEventBus ?? CheckInEventBus();
 
   Router get _router {
     final router = Router();
@@ -276,6 +283,14 @@ class CheckInServer {
         );
         if (outcome.status == CheckInStatus.recorded) {
           await notificationService.onCheckIn(member.id!, now);
+          // 새로 기록된 등원만 카운터에 알린다 — 재스캔(alreadyCheckedIn)은 알리지 않는다.
+          checkInEventBus.publish(
+            CheckInEvent(
+              memberName: member.name,
+              kind: QrKind.checkIn,
+              isLate: outcome.attendance.status == AttendanceStatus.late,
+            ),
+          );
           result = {
             'result': 'checkedIn',
             'memberName': member.name,
@@ -294,6 +309,9 @@ class CheckInServer {
             return _json({'error': 'no_open_session'}, statusCode: 400);
           case CheckOutStatus.recorded:
             await notificationService.onCheckOut(member.id!, now);
+            checkInEventBus.publish(
+              CheckInEvent(memberName: member.name, kind: QrKind.checkOut),
+            );
             result = {'result': 'checkedOut', 'memberName': member.name};
           case CheckOutStatus.alreadyCheckedOut:
             result = {'result': 'alreadyCheckedOut', 'memberName': member.name};

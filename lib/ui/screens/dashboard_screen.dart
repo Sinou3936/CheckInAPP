@@ -7,6 +7,8 @@ import 'package:checkin_app/repositories/attendance_repository.dart';
 import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
+import 'package:checkin_app/services/checkin_event_bus.dart';
+import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/ui/attendance_labels.dart';
 
 /// 과거 날짜에서 이어진 방문 구역의 제목.
@@ -28,6 +30,9 @@ class DashboardScreen extends StatefulWidget {
   /// 현재 시각. 테스트가 자정 전후 같은 시각을 고정하려고 주입한다.
   final DateTime Function() clock;
 
+  /// 체크 완료 배너를 보여주는 시간.
+  final Duration bannerDuration;
+
   const DashboardScreen({
     super.key,
     required this.controller,
@@ -35,6 +40,7 @@ class DashboardScreen extends StatefulWidget {
     required this.memberRepository,
     this.refreshInterval = const Duration(seconds: 5),
     this.clock = DateTime.now,
+    this.bannerDuration = const Duration(seconds: 5),
   });
 
   @override
@@ -49,17 +55,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Timer? _timer;
 
+  /// 방금 학생 폰에서 기록된 체크. 카운터 앞의 학생이 "찍혔다"를 눈으로 확인하는 용도다.
+  CheckInEvent? _banner;
+  Timer? _bannerTimer;
+  StreamSubscription<CheckInEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
     _refresh();
     _timer = Timer.periodic(widget.refreshInterval, (_) => _refresh());
+    // 서버와 같은 프로세스라 컨트롤러가 든 서버의 통로를 그대로 듣는다.
+    _eventSubscription = widget.controller.server.checkInEventBus.events.listen(
+      _onCheckInEvent,
+    );
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _bannerTimer?.cancel();
+    _eventSubscription?.cancel();
     super.dispose();
+  }
+
+  void _onCheckInEvent(CheckInEvent event) {
+    if (!mounted) return;
+    setState(() => _banner = event);
+    // 다음 사람이 연달아 찍으면 타이머를 새로 걸어 마지막 사람의 문구가 끝까지 보이게 한다.
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer(widget.bannerDuration, () {
+      if (mounted) setState(() => _banner = null);
+    });
+    // 목록도 곧바로 갱신해 방금 찍은 사람이 보이게 한다.
+    _refresh();
   }
 
   Future<void> _refresh() async {
@@ -134,6 +163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (_banner != null) _CheckInBanner(event: _banner!),
             Expanded(child: _buildToday()),
           ],
         ),
@@ -182,6 +212,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// "OOO 님 등원 완료" 를 크게 보여주는 확인 배너. 지각은 색으로도 구분한다.
+class _CheckInBanner extends StatelessWidget {
+  final CheckInEvent event;
+
+  const _CheckInBanner({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isCheckOut = event.kind == QrKind.checkOut;
+    final text =
+        '${event.memberName} 님 ${isCheckOut ? '하원' : '등원'} 완료'
+        '${event.isLate ? ' (지각)' : ''}';
+    return Container(
+      key: const Key('checkInBanner'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      decoration: BoxDecoration(
+        color: event.isLate ? scheme.tertiaryContainer : scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
     );
   }
 }

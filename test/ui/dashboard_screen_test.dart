@@ -13,6 +13,7 @@ import 'package:checkin_app/server/checkin_server.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
+import 'package:checkin_app/services/checkin_event_bus.dart';
 import 'package:checkin_app/services/network_info.dart';
 import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
@@ -80,6 +81,7 @@ Future<DashboardHarness> pumpDashboard(
   String? checkIn = _checkInUrl,
   String? checkOut = _checkOutUrl,
   bool waitForLoad = true,
+  Duration bannerDuration = const Duration(seconds: 5),
 }) async {
   final clockNow = now ?? kNow;
   final db = (await tester.runAsync(openTestDatabase))!;
@@ -102,6 +104,7 @@ Future<DashboardHarness> pumpDashboard(
         memberRepository: h.members,
         refreshInterval: refreshInterval,
         clock: () => clockNow,
+        bannerDuration: bannerDuration,
       ),
     ),
   );
@@ -154,6 +157,44 @@ Future<void> waitForSummary(WidgetTester tester, String summary) =>
     pumpUntil(tester, () => shown(find.text(summary)));
 
 void main() {
+  group('체크 완료 배너', () {
+    testWidgets('등원 이벤트가 오면 이름과 완료 문구를 띄우고 시간이 지나면 사라진다', (tester) async {
+      final h = await pumpDashboard(
+        tester,
+        bannerDuration: const Duration(seconds: 3),
+      );
+      expect(find.byKey(const Key('checkInBanner')), findsNothing);
+
+      h.controller.server.checkInEventBus.publish(
+        const CheckInEvent(memberName: '홍길동', kind: QrKind.checkIn),
+      );
+      await tester.pump();
+      expect(find.text('홍길동 님 등원 완료'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.byKey(const Key('checkInBanner')), findsNothing);
+    });
+
+    testWidgets('지각과 하원은 문구가 다르다', (tester) async {
+      final h = await pumpDashboard(tester);
+      final bus = h.controller.server.checkInEventBus;
+
+      bus.publish(
+        const CheckInEvent(memberName: '김지각', kind: QrKind.checkIn, isLate: true),
+      );
+      await tester.pump();
+      expect(find.text('김지각 님 등원 완료 (지각)'), findsOneWidget);
+
+      bus.publish(const CheckInEvent(memberName: '이하원', kind: QrKind.checkOut));
+      await tester.pump();
+      expect(find.text('이하원 님 하원 완료'), findsOneWidget);
+      expect(find.textContaining('김지각'), findsNothing);
+
+      // 남은 배너 타이머를 정리한다.
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
   group('정정 A — QR 을 라벨과 함께 그린다', () {
     testWidgets('등원 카드와 하원 카드가 각각 QR 을 갖고, 라벨이 같은 카드 안에 있다', (tester) async {
       await pumpDashboard(tester);

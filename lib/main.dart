@@ -16,6 +16,7 @@ import 'package:checkin_app/services/admin_bind_code_service.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
+import 'package:checkin_app/services/minimum_stay_service.dart';
 import 'package:checkin_app/services/network_info.dart';
 import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
@@ -85,6 +86,10 @@ class _CheckInAppState extends State<CheckInApp> {
     final qrTokenService = QrTokenService();
     // 서버와 회원 화면이 같은 인스턴스를 공유해야 화면에서 발급한 코드를 서버가 알아본다.
     final adminBindCodeService = AdminBindCodeService();
+    final appStateRepository = AppStateRepository(db);
+    // 서버와 설정 화면이 같은 인스턴스를 공유한다. 서버가 요청마다 읽으므로 설정을 바꾸면
+    // 그 다음 요청부터 새 값이 적용된다 — 앱을 다시 띄울 필요가 없다.
+    final minimumStayService = MinimumStayService(appStateRepository);
     final server = CheckInServer(
       memberRepository: memberRepository,
       deviceBindingRepository: deviceBindingRepository,
@@ -96,6 +101,7 @@ class _CheckInAppState extends State<CheckInApp> {
         notifier: RecordingParentNotifier(notificationLogRepository),
       ),
       bindAttemptThrottle: BindAttemptThrottle(),
+      minimumStayService: minimumStayService,
       adminBindCodeService: adminBindCodeService,
     );
     final controller = CheckInAppController(
@@ -109,7 +115,7 @@ class _CheckInAppState extends State<CheckInApp> {
 
     final absenceScheduler = AbsenceScheduler(
       attendanceService: attendanceService,
-      appStateRepository: AppStateRepository(db),
+      appStateRepository: appStateRepository,
     );
     absenceScheduler.start();
     _absenceScheduler = absenceScheduler;

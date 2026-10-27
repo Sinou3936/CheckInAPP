@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -8,14 +9,13 @@ import 'package:checkin_app/repositories/member_repository.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
 import 'package:checkin_app/services/checkin_event_bus.dart';
-import 'package:checkin_app/services/qr_token_service.dart';
 import 'package:checkin_app/ui/attendance_labels.dart';
 
 /// 과거 날짜에서 이어진 방문 구역의 제목.
 const _previousSectionTitle = '이전 날짜에서 이어진 방문';
 
-/// 카운터 화면의 실시간 현황. 등원 QR 과 하원 QR 을 라벨과 함께 보여주고, 지금 체류 중인 사람과
-/// 보정이 필요한 미하원 기록을 보여준다.
+/// 카운터 화면의 실시간 현황. QR 하나를 크게 보여주고, 지금 체류 중인 사람과 보정이 필요한
+/// 미하원 기록을 보여준다. 막힌 하원 시도는 주의 배너로 알린다.
 ///
 /// 요약 숫자는 오늘 행만 센다. 과거 날짜에서 이어진 방문(자정을 넘긴 체류·하원·미하원)은
 /// 목록 아래 구역에 따로 보여, "오늘 등원 N" 이 과거 방문에 오염되지 않게 한다.
@@ -141,29 +141,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ValueListenableBuilder<String?>(
-                  valueListenable: widget.controller.checkInUrl,
-                  builder: (_, url, _) => QrCard(
-                    key: const Key('checkInCard'),
-                    label: '등원',
-                    url: url,
-                  ),
-                ),
-                ValueListenableBuilder<String?>(
-                  valueListenable: widget.controller.checkOutUrl,
-                  builder: (_, url, _) => QrCard(
-                    key: const Key('checkOutCard'),
-                    label: '하원',
-                    url: url,
-                  ),
-                ),
-              ],
+            ValueListenableBuilder<String?>(
+              valueListenable: widget.controller.qrUrl,
+              builder: (_, url, _) => QrCard(
+                key: const Key('qrCard'),
+                url: url,
+                // 모니터를 충분히 쓰되, 창이 작으면 아래 목록을 밀어내지 않는 선까지 줄인다.
+                size: math.min(360, MediaQuery.sizeOf(context).height * 0.45),
+              ),
             ),
             const SizedBox(height: 16),
-            if (_banner != null) _CheckInBanner(event: _banner!),
+            if (_banner != null) _bannerFor(_banner!),
             Expanded(child: _buildToday()),
           ],
         ),
@@ -216,6 +204,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+/// 기록된 체크는 완료 배너로, 막힌 시도는 주의 배너로 그린다. 둘이 같은 모양이면 직원이
+/// 방금 찍히지 않은 사람을 찍힌 것으로 읽는다.
+Widget _bannerFor(CheckInEvent event) => switch (event.kind) {
+  CheckEventKind.checkedIn ||
+  CheckEventKind.checkedOut => _CheckInBanner(event: event),
+  CheckEventKind.blockedTooEarly ||
+  CheckEventKind.blockedOverdue => _BlockedBanner(event: event),
+};
+
+/// 배너 공통 틀. 문구를 크게, 한 줄로 보여준다.
+class _Banner extends StatelessWidget {
+  final Key bannerKey;
+  final Color color;
+  final String text;
+
+  const _Banner({
+    required this.bannerKey,
+    required this.color,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: bannerKey,
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
+    );
+  }
+}
+
 /// "OOO 님 등원 완료" 를 크게 보여주는 확인 배너. 지각은 색으로도 구분한다.
 class _CheckInBanner extends StatelessWidget {
   final CheckInEvent event;
@@ -225,26 +254,37 @@ class _CheckInBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isCheckOut = event.kind == QrKind.checkOut;
-    final text =
-        '${event.memberName} 님 ${isCheckOut ? '하원' : '등원'} 완료'
-        '${event.isLate ? ' (지각)' : ''}';
-    return Container(
-      key: const Key('checkInBanner'),
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-      decoration: BoxDecoration(
-        color: event.isLate
-            ? scheme.tertiaryContainer
-            : scheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.headlineMedium,
-      ),
+    final isCheckOut = event.kind == CheckEventKind.checkedOut;
+    return _Banner(
+      bannerKey: const Key('checkInBanner'),
+      color: event.isLate ? scheme.tertiaryContainer : scheme.primaryContainer,
+      text:
+          '${event.memberName} 님 ${isCheckOut ? '하원' : '등원'} 완료'
+          '${event.isLate ? ' (지각)' : ''}',
+    );
+  }
+}
+
+/// 막힌 시도를 알리는 주의 배너.
+///
+/// 차단은 아무것도 기록하지 않으므로 이 배너가 유일한 흔적이다. 학생이 카운터 앞에 서 있는
+/// 지금이 직원이 알아야 하는 순간이고, 처리는 기록 탭의 보정으로 한다.
+class _BlockedBanner extends StatelessWidget {
+  final CheckInEvent event;
+
+  const _BlockedBanner({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = event.remaining;
+    final reason = event.kind == CheckEventKind.blockedOverdue
+        ? '하원 창 지남'
+        : '최소 체류 시간 전 하원 시도'
+              '${remaining == null ? '' : ' (${remaining.inMinutes}분 남음)'}';
+    return _Banner(
+      bannerKey: const Key('blockedBanner'),
+      color: Theme.of(context).colorScheme.errorContainer,
+      text: '${event.memberName} — $reason',
     );
   }
 }
@@ -329,33 +369,30 @@ class _DashboardTile extends StatelessWidget {
 /// 저장 형식 ISO8601 에서 `HH:mm` 만 자른다. 저장값은 `toIso8601String()` 이 만든 지역 시각이다.
 String _hhmm(String iso) => iso.substring(11, 16);
 
-/// QR 한 장과 그 라벨. [url] 이 아직 없으면 같은 자리에 로딩 표시를 그린다.
+/// 카운터에 하나뿐인 QR. [url] 이 아직 없으면 같은 자리에 로딩 표시를 그린다.
+///
+/// **라벨이 없다.** 등원·하원을 학생이 고르지 않으므로 붙일 라벨이 없고, 라벨이 있으면
+/// 둘 중 하나를 고르는 화면으로 읽힌다.
 ///
 /// qr_flutter 는 QR 의 data 를 private 으로 두므로, 테스트는 이 위젯이 받은 [url] 을 본다.
 /// 이 위젯은 그 값을 그대로 `QrImageView(data:)` 에 넘긴다.
 class QrCard extends StatelessWidget {
-  final String label;
   final String? url;
 
-  const QrCard({super.key, required this.label, required this.url});
+  /// 모니터 하나를 충분히 쓰는 크기. 멀리서도 스캔할 수 있어야 한다.
+  final double size;
+
+  const QrCard({super.key, required this.url, this.size = 320});
 
   @override
   Widget build(BuildContext context) {
     final url = this.url;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 12),
-        if (url == null)
-          const SizedBox(
-            width: 200,
-            height: 200,
-            child: Center(child: CircularProgressIndicator()),
+    return url == null
+        ? SizedBox(
+            width: size,
+            height: size,
+            child: const Center(child: CircularProgressIndicator()),
           )
-        else
-          QrImageView(data: url, size: 200),
-      ],
-    );
+        : QrImageView(data: url, size: size);
   }
 }

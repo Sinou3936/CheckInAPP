@@ -8,15 +8,15 @@
 
 ## 지금 상태 — 먼저 읽을 것
 
-**트리 전체가 컴파일되지 않는다.** Task 3~6·8 이 `QrKind` 를 없애고 `recordCheckOut` 에
-`minimumStay` 를 필수 인자로 만들었는데, 그 변경을 아직 못 따라간 파일이 둘 남았다:
+**Task 1~6·8 과 Task 9 의 배선까지 끝나 있고, `flutter analyze` 는 No issues, 자동 테스트
+265개가 전부 통과한다.** 남은 것은 **Task 7(체크인 페이지)**, **Task 9 의 화면 부분(설정 탭)**,
+**Task 10(마감)** 이다.
 
-| 파일 | 왜 깨져 있나 |
-|---|---|
-| `lib/server/checkin_page.dart` | 세션에 담긴 `kind` 로 제목을 정하고, `/api/checkin` 에 `actionId` 없이 쓴다 (Task 7) |
-| `lib/main.dart` | `CheckInServer` 에 `minimumStayService` 를 넘기지 않는다 (Task 9) |
-
-이 둘을 고치면 초록이 된다. **다른 파일을 먼저 건드릴 필요가 없다.**
+**가장 중요한 것부터: 지금 상태로는 학생 폰에서 체크가 안 된다.** `lib/server/checkin_page.dart`
+는 HTML 을 원시 문자열로 들고 있어서 **컴파일은 되지만 동작이 낡았다** — 사라진
+`/api/session` 응답의 `kind` 로 제목을 정하고, `/api/checkin` 에 `actionId` 없이 쓴다.
+서버는 `actionId` 없는 요청을 `400 bad_request` 로 거부한다. 자동 테스트는 이 문자열을
+문법적으로만 보기 때문에 **초록인데도 깨져 있다.** Task 7 이 그것을 고친다.
 
 ### 커밋된 것
 
@@ -25,17 +25,12 @@
 | `626ce31` | 설계 승인본 — 제3자 검토 5건을 스펙 근거로 판정해 반영 |
 | `5849dc5` | 구현 계획 10개 태스크 |
 | `6871182` | 권위 스펙 개정 (QR 2종 → 단일 QR + 최소 체류 시간) |
-| 그 다음 커밋 | Task 2: `MinimumStayService` (`app_state`, 기본 30분) — 이 시점 전체 228개 통과 |
+| (Task 2) | `MinimumStayService` (`app_state`, 기본 30분) |
+| `561daf5` | 이 문서의 첫 판 |
+| (단일 QR 전환) | Task 3·4·5·6·8 + Task 9 의 `main.dart` 배선. analyze 0건, 테스트 265개 통과 |
 
-### 커밋되지 않고 **작업 트리에만** 있는 것
-
-Task 3·4·5·6·8 의 프로덕션 코드와 테스트다. 파일별 테스트는 모두 통과했다 (서버 58,
-대시보드 21, 컨트롤러 11, 판정 29, 세션 11, 토큰 6, 이벤트 4). 전체 커밋은 트리가 초록이
-되는 Task 9 끝에 한 번에 한다 — `QrKind` 제거가 여러 파일을 동시에 깨므로 중간에서 끊으면
-빨간 커밋이 남는다.
-
-`git status` 로 확인하고, 비어 있으면 작업이 날아간 것이니 `git log` 와 이 문서를 보고
-계획서의 Task 3~6·8 을 다시 수행할 것.
+`main.dart` 는 `MinimumStayService` 를 **하나** 만들어 서버에 넘긴다. 설정 화면도 같은
+인스턴스를 받아야 한다 — 서버가 요청마다 `read()` 하므로 캐시 무효화는 필요 없다.
 
 ### 이미 만들어진 인터페이스 (남은 작업이 쓸 것)
 
@@ -168,10 +163,13 @@ deviceToken, actionId}` → 결과 화면.
 
 ---
 
-## Task 9 — 설정 탭
+## Task 9 — 설정 탭 (배선은 끝남, 화면만 남음)
 
-**파일:** `lib/ui/screens/settings_screen.dart` (신규), `lib/main.dart` (수정),
+**파일:** `lib/ui/screens/settings_screen.dart` (신규), `lib/main.dart` (탭 추가만),
 `test/ui/settings_screen_test.dart` (신규), `test/main_smoke_test.dart` (수정)
+
+`main.dart` 의 `MinimumStayService` 생성과 서버 주입은 이미 들어가 있다. 남은 것은 화면과
+`_HomeShellState.build` 의 탭 추가다.
 
 ```dart
 class SettingsScreen extends StatefulWidget {

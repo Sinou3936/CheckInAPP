@@ -31,7 +31,7 @@ void main() {
     addTearDown(h.close);
     final memberId = await h.members.insert(const Member(name: '홍길동'));
     final code = h.server.adminBindCodeService.issue(memberId);
-    final session = await h.issueSession(h.qr.checkInToken);
+    final session = await h.issueSession();
 
     final response = await _bind(
       h,
@@ -49,7 +49,7 @@ void main() {
     addTearDown(h.close);
     final memberId = await h.members.insert(const Member(name: '홍길동'));
     final code = h.server.adminBindCodeService.issue(memberId);
-    final session = await h.issueSession(h.qr.checkInToken);
+    final session = await h.issueSession();
 
     await _bind(h, session: session, memberId: memberId, adminCode: code);
     final reuse = await _bind(
@@ -70,7 +70,7 @@ void main() {
     final memberId = await h.members.insert(const Member(name: '홍길동'));
     final code = h.server.adminBindCodeService.issue(memberId);
     final wrong = code == '000000' ? '000001' : '000000';
-    final session = await h.issueSession(h.qr.checkInToken);
+    final session = await h.issueSession();
 
     for (var i = 0; i < 5; i++) {
       final r = await _bind(

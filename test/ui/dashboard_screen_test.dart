@@ -13,7 +13,9 @@ import 'package:checkin_app/server/checkin_server.dart';
 import 'package:checkin_app/services/attendance_service.dart';
 import 'package:checkin_app/services/bind_attempt_throttle.dart';
 import 'package:checkin_app/services/checkin_app_controller.dart';
+import 'package:checkin_app/repositories/app_state_repository.dart';
 import 'package:checkin_app/services/checkin_event_bus.dart';
+import 'package:checkin_app/services/minimum_stay_service.dart';
 import 'package:checkin_app/services/network_info.dart';
 import 'package:checkin_app/services/notification_service.dart';
 import 'package:checkin_app/services/qr_token_service.dart';
@@ -26,8 +28,7 @@ import '../helpers/widget_test_helpers.dart';
 /// 이전 날짜에서 이어진 방문 구역의 제목. 화면과 같은 글자여야 한다.
 const previousSectionTitle = '이전 날짜에서 이어진 방문';
 
-const _checkInUrl = 'http://192.168.0.10:8080/checkin?token=IN-TOKEN';
-const _checkOutUrl = 'http://192.168.0.10:8080/checkin?token=OUT-TOKEN';
+const _qrUrl = 'http://192.168.0.10:8080/checkin?token=QR-TOKEN';
 
 /// 테스트 중에 새로고침 타이머가 끼어들지 않도록 충분히 긴 간격을 쓴다.
 const _quietInterval = Duration(hours: 1);
@@ -44,8 +45,8 @@ class DashboardHarness {
   DashboardHarness(this.attendances, this.members, this.controller);
 }
 
-/// 서버 객체만 만들고 `start()` 는 부르지 않는다. 대시보드는 컨트롤러의 두 notifier 만 읽으므로
-/// 실제 소켓과 회전 타이머 없이 화면을 검증할 수 있다.
+/// 서버 객체만 만들고 `start()` 는 부르지 않는다. 대시보드는 컨트롤러의 notifier 와 이벤트
+/// 통로만 읽으므로 실제 소켓과 회전 타이머 없이 화면을 검증할 수 있다.
 CheckInAppController _unstartedController(Database db) {
   final members = MemberRepository(db);
   final qr = QrTokenService();
@@ -65,6 +66,7 @@ CheckInAppController _unstartedController(Database db) {
       notifier: RecordingParentNotifier(logs),
     ),
     bindAttemptThrottle: BindAttemptThrottle(),
+    minimumStayService: MinimumStayService(AppStateRepository(db)),
   );
   return CheckInAppController(
     qrTokenService: qr,
@@ -78,18 +80,22 @@ Future<DashboardHarness> pumpDashboard(
   Future<void> Function(DashboardHarness h)? seed,
   Duration refreshInterval = _quietInterval,
   DateTime? now,
-  String? checkIn = _checkInUrl,
-  String? checkOut = _checkOutUrl,
+  String? qrUrl = _qrUrl,
   bool waitForLoad = true,
   Duration bannerDuration = const Duration(seconds: 5),
 }) async {
   final clockNow = now ?? kNow;
+  // 이 화면은 카운터 PC 의 모니터에서 돈다. 기본 테스트 화면(800x600)은 QR 하나와 목록을
+  // 같이 담기에 좁아서, 보이지 않는 행을 "없다"로 단정하게 된다.
+  tester.view.physicalSize = const Size(1280, 1000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   final db = (await tester.runAsync(openTestDatabase))!;
   addTearDown(() => db.close());
   final controller = _unstartedController(db);
   addTearDown(controller.dispose);
-  controller.checkInUrl.value = checkIn;
-  controller.checkOutUrl.value = checkOut;
+  controller.qrUrl.value = qrUrl;
   final h = DashboardHarness(
     AttendanceRepository(db),
     MemberRepository(db),
@@ -117,16 +123,16 @@ Future<DashboardHarness> pumpDashboard(
   return h;
 }
 
-/// 등원 카드 또는 하원 카드 안의 QR 위젯.
-Finder qrIn(String cardKey) => find.descendant(
-  of: find.byKey(Key(cardKey)),
+/// 카운터에 하나뿐인 QR 카드 안의 QR 위젯.
+final Finder qrInCard = find.descendant(
+  of: find.byKey(const Key('qrCard')),
   matching: find.byType(QrImageView),
 );
 
 /// qr_flutter 는 QR 의 data 를 private 으로 두어 테스트에서 읽을 수 없다. 대신 카드가 들고
 /// 있는 주소를 본다 — 카드는 그 값을 그대로 `QrImageView(data:)` 에 넘긴다.
-String? cardUrl(WidgetTester tester, String cardKey) =>
-    tester.widget<QrCard>(find.byKey(Key(cardKey))).url;
+String? cardUrl(WidgetTester tester) =>
+    tester.widget<QrCard>(find.byKey(const Key('qrCard'))).url;
 
 // ── 날짜·기록 헬퍼 ──────────────────────────────────────────────────────────
 
@@ -166,7 +172,7 @@ void main() {
       expect(find.byKey(const Key('checkInBanner')), findsNothing);
 
       h.controller.server.checkInEventBus.publish(
-        const CheckInEvent(memberName: '홍길동', kind: QrKind.checkIn),
+        const CheckInEvent(memberName: '홍길동', kind: CheckEventKind.checkedIn),
       );
       await tester.pump();
       expect(find.text('홍길동 님 등원 완료'), findsOneWidget);
@@ -184,14 +190,16 @@ void main() {
       bus.publish(
         const CheckInEvent(
           memberName: '김지각',
-          kind: QrKind.checkIn,
+          kind: CheckEventKind.checkedIn,
           isLate: true,
         ),
       );
       await pumpUntil(tester, () => shown(find.text('김지각 님 등원 완료 (지각)')));
       expect(find.text('김지각 님 등원 완료 (지각)'), findsOneWidget);
 
-      bus.publish(const CheckInEvent(memberName: '이하원', kind: QrKind.checkOut));
+      bus.publish(
+        const CheckInEvent(memberName: '이하원', kind: CheckEventKind.checkedOut),
+      );
       await pumpUntil(tester, () => shown(find.text('이하원 님 하원 완료')));
       expect(find.text('이하원 님 하원 완료'), findsOneWidget);
       expect(find.textContaining('김지각'), findsNothing);
@@ -201,49 +209,77 @@ void main() {
     });
   });
 
-  group('정정 A — QR 을 라벨과 함께 그린다', () {
-    testWidgets('등원 카드와 하원 카드가 각각 QR 을 갖고, 라벨이 같은 카드 안에 있다', (tester) async {
-      await pumpDashboard(tester);
+  group('차단 배너', () {
+    // 차단은 아무것도 기록하지 않으므로 이 배너가 직원이 알 수 있는 유일한 길이다.
+    testWidgets('최소 체류 시간 전 하원 시도는 남은 분과 함께 뜬다', (tester) async {
+      final h = await pumpDashboard(tester);
 
-      expect(find.byType(QrImageView), findsNWidgets(2));
-      expect(qrIn('checkInCard'), findsOneWidget);
-      expect(qrIn('checkOutCard'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('checkInCard')),
-          matching: find.text('등원'),
+      h.controller.server.checkInEventBus.publish(
+        const CheckInEvent(
+          memberName: '홍길동',
+          kind: CheckEventKind.blockedTooEarly,
+          remaining: Duration(minutes: 12),
         ),
-        findsOneWidget,
       );
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('checkOutCard')),
-          matching: find.text('하원'),
-        ),
-        findsOneWidget,
+      await pumpUntil(
+        tester,
+        () => shown(find.byKey(const Key('blockedBanner'))),
       );
+
+      expect(find.text('홍길동 — 최소 체류 시간 전 하원 시도 (12분 남음)'), findsOneWidget);
+      // 기록된 체크로 보이면 안 된다.
+      expect(find.byKey(const Key('checkInBanner')), findsNothing);
+
+      await tester.pump(const Duration(seconds: 5));
     });
 
-    testWidgets('각 QR 카드가 받은 주소는 해당 notifier 값과 같고, 두 값은 서로 다르다', (
-      tester,
-    ) async {
+    testWidgets('하원 창을 넘긴 시도는 창 지남으로 뜬다', (tester) async {
+      final h = await pumpDashboard(tester);
+
+      h.controller.server.checkInEventBus.publish(
+        const CheckInEvent(
+          memberName: '홍길동',
+          kind: CheckEventKind.blockedOverdue,
+        ),
+      );
+      await pumpUntil(
+        tester,
+        () => shown(find.byKey(const Key('blockedBanner'))),
+      );
+
+      expect(find.text('홍길동 — 하원 창 지남'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('QR 은 하나다', () {
+    testWidgets('QR 카드가 하나뿐이고 등원·하원 라벨이 없다', (tester) async {
       await pumpDashboard(tester);
 
-      final inUrl = cardUrl(tester, 'checkInCard');
-      final outUrl = cardUrl(tester, 'checkOutCard');
-      expect(inUrl, _checkInUrl);
-      expect(outUrl, _checkOutUrl);
-      expect(inUrl, isNot(outUrl));
+      expect(find.byType(QrImageView), findsOneWidget);
+      expect(qrInCard, findsOneWidget);
+      // 라벨이 남아 있으면 학생이 둘 중 하나를 고르는 화면으로 읽는다.
+      expect(find.text('등원'), findsNothing);
+      expect(find.text('하원'), findsNothing);
     });
 
-    testWidgets('URL 이 아직 null 이면 그 카드에는 로딩 표시가 보이고 QR 은 없다', (tester) async {
-      await pumpDashboard(tester, checkIn: null, waitForLoad: false);
-      await pumpUntil(tester, () => shown(qrIn('checkOutCard')));
+    testWidgets('QR 카드가 받은 주소는 notifier 값과 같다', (tester) async {
+      await pumpDashboard(tester);
 
-      expect(qrIn('checkInCard'), findsNothing);
+      expect(cardUrl(tester), _qrUrl);
+    });
+
+    testWidgets('URL 이 아직 null 이면 로딩 표시가 보이고 QR 은 없다', (tester) async {
+      // QR 자리의 로딩 표시가 계속 떠 있으므로 "로딩 표시가 사라질 때까지" 를 쓸 수 없다.
+      // 목록이 그려지는 것으로 첫 로드를 확인한다.
+      await pumpDashboard(tester, qrUrl: null, waitForLoad: false);
+      await pumpUntil(tester, () => shown(find.byType(ListView)));
+
+      expect(qrInCard, findsNothing);
       expect(
         find.descendant(
-          of: find.byKey(const Key('checkInCard')),
+          of: find.byKey(const Key('qrCard')),
           matching: find.byType(CircularProgressIndicator),
         ),
         findsOneWidget,
@@ -253,14 +289,10 @@ void main() {
     testWidgets('notifier 값이 바뀌면 QR 카드의 주소도 따라 바뀐다', (tester) async {
       final h = await pumpDashboard(tester);
 
-      h.controller.checkInUrl.value =
-          'http://192.168.0.10:8080/checkin?token=NEW';
+      h.controller.qrUrl.value = 'http://192.168.0.10:8080/checkin?token=NEW';
       await tester.pump();
 
-      expect(
-        cardUrl(tester, 'checkInCard'),
-        'http://192.168.0.10:8080/checkin?token=NEW',
-      );
+      expect(cardUrl(tester), 'http://192.168.0.10:8080/checkin?token=NEW');
     });
   });
 
